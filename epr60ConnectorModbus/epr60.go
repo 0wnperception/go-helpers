@@ -2,6 +2,8 @@ package epr60ConnectorModbus
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	modbus "github.com/things-go/go-modbus"
@@ -65,6 +67,13 @@ func NewEPR60(deviceName string, addr string) *EPR60 {
 	}
 }
 
+func (e *EPR60) ResetContext() {
+	e.finish()
+	ctx, finish := context.WithCancel(context.Background())
+	e.ctx = ctx
+	e.finish = finish
+}
+
 func (e *EPR60) Connect(cfg EPR60SetupConfig) error {
 	if err := e.modbusClient.Connect(); err != nil {
 		return err
@@ -103,16 +112,17 @@ func (e *EPR60) Release() {
 	e.modbusClient.Close()
 }
 
-func (e *EPR60) PositionMove(pos int, speed, acc uint16, dir bool) {
+func (e *EPR60) PositionMove(ctx context.Context, pos int, speed, acc uint16, dir bool) error {
 	if err := e.SetPosConfig(pos, speed, acc, dir); err != nil {
-		panic(err)
+		return err
 	}
 	if err := e.RunPosConfig(); err != nil {
-		panic(err)
+		return err
 	}
 	if err := e.CheckPosConfig(); err != nil {
-		panic(err)
+		return err
 	}
+	return nil
 }
 
 func (e *EPR60) CheckPosConfig() error {
@@ -202,6 +212,7 @@ func (e *EPR60) RunSpeedConfig() error {
 }
 
 func (e *EPR60) DecStop() error {
+	e.ResetContext()
 	if err := e.modbusClient.WriteSingleRegister(1, e.registers.cfg.ModeControlAddr, uint16(EPR60_MODE_CONTROL_DECELERATION_STOP)); err != nil {
 		return err
 	}
@@ -209,10 +220,51 @@ func (e *EPR60) DecStop() error {
 }
 
 func (e *EPR60) EmergencyStop() error {
+	e.ResetContext()
 	if err := e.modbusClient.WriteSingleRegister(1, e.registers.cfg.ModeControlAddr, uint16(EPR60_MODE_CONTROL_EMERGENCY_STOP)); err != nil {
 		return err
 	}
 	return e.CheckStoped()
+}
+
+func (e *EPR60) DecStopAxisOnSensor(ctx context.Context, idx uint16, state bool) (err error) {
+	pollTicker := time.NewTicker(1 * time.Millisecond)
+	for {
+		select {
+		case <-pollTicker.C:
+			if sensor, tmperr := e.GetInputState(idx); tmperr != nil {
+				err = tmperr
+				return
+			} else {
+				if sensor == state {
+					e.DecStop()
+					return
+				}
+			}
+		case <-e.ctx.Done():
+			return nil
+		}
+	}
+}
+
+func (e *EPR60) EmergencyStopAxisOnSensor(ctx context.Context, idx uint16, state bool) (err error) {
+	pollTicker := time.NewTicker(1 * time.Millisecond)
+	for {
+		select {
+		case <-pollTicker.C:
+			if sensor, tmperr := e.GetInputState(idx); tmperr != nil {
+				err = tmperr
+				return
+			} else {
+				if sensor == state {
+					e.EmergencyStop()
+					return
+				}
+			}
+		case <-e.ctx.Done():
+			return nil
+		}
+	}
 }
 
 func (e *EPR60) CheckStoped() error {
@@ -282,6 +334,8 @@ func (e *EPR60) GetInputState(idx uint16) (in bool, err error) {
 			in = e.registers.registers.InputState5
 		case 6:
 			in = e.registers.registers.InputState6
+		default:
+			err = errors.New(fmt.Sprintf("no such input with idx %d", idx))
 		}
 	}
 	return

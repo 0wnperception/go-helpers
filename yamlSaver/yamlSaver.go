@@ -11,7 +11,7 @@ func Save(params interface{}, path string) (err error) {
 	if err != nil {
 		return
 	}
-	return ioutil.WriteFile(path, data, 0)
+	return ioutil.WriteFile(path, data, 0644)
 }
 
 func Load(params interface{}, path string) (err error) {

@@ -1,6 +1,7 @@
 package mqttConnector
 
 import (
+	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -24,6 +25,7 @@ type Observer interface {
 }
 
 type MqttConnector struct {
+	sync.Locker
 	cfg             *MqttConfig
 	client          mqtt.Client
 	opts            *mqtt.ClientOptions
@@ -46,6 +48,7 @@ func NewMqttConnector(cfg *MqttConfig) (*MqttConnector, error) {
 	opts.SetAutoReconnect(false)
 
 	mc := &MqttConnector{
+		Locker:          &sync.RWMutex{},
 		cfg:             cfg,
 		client:          mqtt.NewClient(opts),
 		opts:            opts,
@@ -74,7 +77,9 @@ func (mc *MqttConnector) Subscripe(topic string, callback func([]byte)) error {
 }
 
 func (mc *MqttConnector) Publish(topic string, payload []byte) error {
-	if token := mc.client.Publish(topic, 0, true, payload); token.Wait() && token.Error() != nil {
+	mc.Lock()
+	defer mc.Unlock()
+	if token := mc.client.Publish(topic, 1, false, payload); token.Wait() && token.Error() != nil {
 		return token.Error()
 	}
 	return nil
