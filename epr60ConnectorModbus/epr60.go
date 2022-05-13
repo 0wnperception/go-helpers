@@ -16,8 +16,6 @@ type EPR60SetupConfig struct {
 
 type EPR60 struct {
 	deviceName    string
-	ctx           context.Context
-	finish        context.CancelFunc
 	registers     EPR60Registers
 	controlParams EPR60ControlParams
 	modbusClient  modbus.Client
@@ -57,21 +55,11 @@ func NewEPR60(deviceName string, addr string) *EPR60 {
 	}
 	p := modbus.NewTCPClientProvider(addr, opts)
 	client := modbus.NewClient(p)
-	ctx, finish := context.WithCancel(context.Background())
 	return &EPR60{
 		deviceName:   deviceName,
 		modbusClient: client,
 		registers:    EPR60Registers{cfg: NewEPR60RegistersConfig()},
-		ctx:          ctx,
-		finish:       finish,
 	}
-}
-
-func (e *EPR60) ResetContext() {
-	e.finish()
-	ctx, finish := context.WithCancel(context.Background())
-	e.ctx = ctx
-	e.finish = finish
 }
 
 func (e *EPR60) Connect(cfg EPR60SetupConfig) error {
@@ -108,7 +96,6 @@ func (e *EPR60) Setup(cfg EPR60SetupConfig) error {
 }
 
 func (e *EPR60) Release() {
-	e.finish()
 	e.modbusClient.Close()
 }
 
@@ -119,13 +106,13 @@ func (e *EPR60) PositionMove(ctx context.Context, pos int, speed, acc uint16, di
 	if err := e.RunPosConfig(); err != nil {
 		return err
 	}
-	if err := e.CheckPosConfig(); err != nil {
+	if err := e.CheckPosConfig(ctx); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (e *EPR60) CheckPosConfig() error {
+func (e *EPR60) CheckPosConfig(ctx context.Context) error {
 	pollTicker := time.NewTicker(1 * time.Second)
 	for {
 		select {
@@ -136,7 +123,7 @@ func (e *EPR60) CheckPosConfig() error {
 			if e.controlParams.RequestedPos == e.GetAbsolutePos() {
 				return nil
 			}
-		case <-e.ctx.Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
@@ -211,20 +198,18 @@ func (e *EPR60) RunSpeedConfig() error {
 	return e.modbusClient.WriteSingleRegister(1, e.registers.cfg.ModeControlAddr, uint16(EPR60_MODE_CONTROL_SPEED_CONTROL))
 }
 
-func (e *EPR60) DecStop() error {
-	e.ResetContext()
+func (e *EPR60) DecStop(ctx context.Context) error {
 	if err := e.modbusClient.WriteSingleRegister(1, e.registers.cfg.ModeControlAddr, uint16(EPR60_MODE_CONTROL_DECELERATION_STOP)); err != nil {
 		return err
 	}
-	return e.CheckStoped()
+	return e.CheckStoped(ctx)
 }
 
-func (e *EPR60) EmergencyStop() error {
-	e.ResetContext()
+func (e *EPR60) EmergencyStop(ctx context.Context) error {
 	if err := e.modbusClient.WriteSingleRegister(1, e.registers.cfg.ModeControlAddr, uint16(EPR60_MODE_CONTROL_EMERGENCY_STOP)); err != nil {
 		return err
 	}
-	return e.CheckStoped()
+	return e.CheckStoped(ctx)
 }
 
 func (e *EPR60) DecStopAxisOnSensor(ctx context.Context, idx uint16, state bool) (err error) {
@@ -237,11 +222,11 @@ func (e *EPR60) DecStopAxisOnSensor(ctx context.Context, idx uint16, state bool)
 				return
 			} else {
 				if sensor == state {
-					e.DecStop()
+					e.DecStop(ctx)
 					return
 				}
 			}
-		case <-e.ctx.Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
@@ -257,17 +242,17 @@ func (e *EPR60) EmergencyStopAxisOnSensor(ctx context.Context, idx uint16, state
 				return
 			} else {
 				if sensor == state {
-					e.EmergencyStop()
+					e.EmergencyStop(ctx)
 					return
 				}
 			}
-		case <-e.ctx.Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}
 }
 
-func (e *EPR60) CheckStoped() error {
+func (e *EPR60) CheckStoped(ctx context.Context) error {
 	pollTicker := time.NewTicker(1 * time.Millisecond)
 	for {
 		select {
@@ -278,7 +263,7 @@ func (e *EPR60) CheckStoped() error {
 			if !e.registers.registers.StateRunning {
 				return nil
 			}
-		case <-e.ctx.Done():
+		case <-ctx.Done():
 			return nil
 		}
 	}

@@ -32,6 +32,15 @@ func NewQueue[T comparable](maxlen int) *Queue[T] {
 	return q
 }
 
+func (q *Queue[T]) Copy() *Queue[T] {
+	tmp := NewQueue[T](len(q.mem))
+	copy(tmp.mem, q.mem)
+	tmp.len = q.len
+	tmp.head = q.head
+	tmp.tail = q.tail
+	return tmp
+}
+
 func (q *Queue[T]) Push(v T) (ok bool) {
 	if q.cap > 0 {
 		q.Lock()

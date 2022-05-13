@@ -35,6 +35,8 @@ init module
 # GENERATORS #
 `go generate .`
 generate all options in .
+### MOCKS ###
+`//go:generate minimock -i path/repo.Iface -o ./tests/_mock.go -n _mock`
 
 # LINTER (golangci-lint) #
 - `golangci-lint help linters`

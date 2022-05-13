@@ -10,6 +10,7 @@ type OperationManager[IDT comparable, TA any] struct {
 	locker          sync.Locker
 	operations      map[IDT]func(ctx context.Context, args TA) error
 	operationsQueue *queue.Queue[IDT]
+	storageQueue    *queue.Queue[IDT]
 	err             chan error
 }
 
@@ -18,6 +19,7 @@ func NewOperationManager[IDT comparable, TA any](maxops int) *OperationManager[I
 		locker:          &sync.RWMutex{},
 		operations:      make(map[IDT]func(ctx context.Context, args TA) error, maxops),
 		operationsQueue: queue.NewQueue[IDT](maxops),
+		storageQueue:    queue.NewQueue[IDT](maxops),
 		err:             make(chan error, 1),
 	}
 }
@@ -34,13 +36,14 @@ func (m *OperationManager[IDT, TA]) Run(ctx context.Context, args TA) error {
 		<-m.err
 	}
 	m.err <- nil
+	tmpQueue := m.operationsQueue.Copy()
 	for {
 		select {
 		case e := <-m.err:
 			if e != nil {
 				return e
 			} else {
-				if opID, ok := m.operationsQueue.Pull(); ok {
+				if opID, ok := tmpQueue.Pull(); ok {
 					go m.runOperation(ctx, opID, args, m.err)
 				} else {
 					return nil

@@ -39,9 +39,11 @@ func TestOperationManager(t *testing.T) {
 		})
 		t.Log("op added")
 		r.Len(m.operations, 1)
+		r.Equal(m.operationsQueue.Len(), 1)
 		t.Log("operations array len is good")
 		m.Run(context.Background(), p)
-		r.Equal(p.num, 1)
+		r.Equal(1, m.operationsQueue.Len())
+		r.Equal(1, p.num)
 	})
 
 	t.Run("3 operations", func(t *testing.T) {
@@ -64,5 +66,7 @@ func TestOperationManager(t *testing.T) {
 		t.Log("operations array len is good")
 		m.Run(context.Background(), p)
 		r.Equal(p.num, 7)
+		r.Len(m.operations, 3)
+		r.Equal(m.operationsQueue.Len(), 3)
 	})
 }
