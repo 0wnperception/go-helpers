@@ -1,6 +1,8 @@
 package wbmioConnectorModbus
 
 import (
+	"context"
+	"go-helpers/concurrent"
 	"time"
 
 	modbus "github.com/goburrow/modbus"
@@ -19,6 +21,7 @@ type WBMIO struct {
 	deviceName    string
 	modbusClient  modbus.Client
 	modbusHandler *modbus.RTUClientHandler
+	concurrent    *concurrent.Concurrent
 }
 
 func NewWBMIO(deviceName, serial string, addr byte) *WBMIO {
@@ -32,25 +35,34 @@ func NewWBMIO(deviceName, serial string, addr byte) *WBMIO {
 
 	client := modbus.NewClient(handler)
 	return &WBMIO{
+		concurrent:    concurrent.NewConcurrent(concurrent.ConcurrentConfig{SimCapacity: 1}),
 		deviceName:    deviceName,
 		modbusClient:  client,
 		modbusHandler: handler,
 	}
 }
 
-func (wb *WBMIO) SetState(idx uint16, state bool) (err error) {
-	if state {
-		_, err = wb.modbusClient.WriteSingleCoil(OUTPUT_START_ADDR+idx, COIL_ON)
-	} else {
-		_, err = wb.modbusClient.WriteSingleCoil(OUTPUT_START_ADDR+idx, COIL_OFF)
+func (wb *WBMIO) SetState(ctx context.Context, idx uint16, state bool) (err error) {
+	if ok := wb.concurrent.Borrow(ctx); ok {
+		if state {
+			_, err = wb.modbusClient.WriteSingleCoil(OUTPUT_START_ADDR+idx, COIL_ON)
+		} else {
+			_, err = wb.modbusClient.WriteSingleCoil(OUTPUT_START_ADDR+idx, COIL_OFF)
+		}
+		wb.concurrent.SettleUp()
 	}
 	return
 }
 
-func (wb *WBMIO) GetState(idx uint16) (in bool, err error) {
-	res, err := wb.modbusClient.ReadCoils(INPUT_START_ADDR+idx, 1)
-	if err != nil || len(res) == 0 {
-		return false, err
+func (wb *WBMIO) GetState(ctx context.Context, idx uint16) (in bool, err error) {
+	if ok := wb.concurrent.Borrow(ctx); ok {
+		var res []byte
+		if res, err = wb.modbusClient.ReadCoils(INPUT_START_ADDR+idx, 1); err == nil {
+			if len(res) > 0 {
+				in = res[0] > 0
+			}
+		}
+		wb.concurrent.SettleUp()
 	}
-	return res[0] > 0, err
+	return
 }
