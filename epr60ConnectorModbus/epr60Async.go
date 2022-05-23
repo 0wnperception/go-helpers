@@ -14,12 +14,12 @@ func (e *EPR60) RunAxisSpeedMoveAsync(wg *sync.WaitGroup, speed, acc uint16, dir
 	return
 }
 
-func (e *EPR60) RunAxisPositionMoveAsync(ctx context.Context, wg *sync.WaitGroup, pos int, speed, acc uint16, dir bool) (err error) {
+func (e *EPR60) RunAxisPositionMoveAsync(ctx context.Context, wg *sync.WaitGroup, acc, speed uint16, pos int, dir bool) (err error) {
 	wg.Add(1)
-	go func(ctx context.Context, wg *sync.WaitGroup, e *EPR60, pos int, speed, acc uint16, dir bool, err *error) {
-		*err = e.PositionMove(ctx, pos, speed, acc, dir)
+	go func(ctx context.Context, wg *sync.WaitGroup, e *EPR60, acc, speed uint16, pos int, dir bool, err *error) {
+		*err = e.PositionMove(ctx, acc, speed, pos, dir)
 		wg.Done()
-	}(ctx, wg, e, pos, speed, acc, dir, &err)
+	}(ctx, wg, e, acc, speed, pos, dir, &err)
 	return
 }
 

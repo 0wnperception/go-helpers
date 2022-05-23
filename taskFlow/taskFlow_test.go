@@ -85,7 +85,7 @@ func TestBackground(t *testing.T) {
 		r.Len(bt.GetSubTasks(), 2)
 
 		ctx := context.Background()
-		_, ready := BackgroundFlow(ctx, bt)
+		ready := BackgroundFlow(ctx, NewConcurrentFlow(), bt)
 		r.Nil(<-ready)
 		t.Log(<-bt.Done())
 	})
@@ -94,13 +94,13 @@ func TestBackground(t *testing.T) {
 		v := 0
 		bt := NewBasicTask("bt", 2)
 		bt1 := NewBasicTask("bt1", 1)
-		bt1.Add(NewPrimaryTask("pt1", func(ctx context.Context) (err error) {
+		bt1.Add(NewPrimaryTask("bt1 pt1", func(ctx context.Context) (err error) {
 			v += 1
 			bt1.SetDone("primary 1 done")
 			return nil
 		}))
 		bt.Add(bt1)
-		bt.Add(NewPrimaryTask("pt1", func(ctx context.Context) (err error) {
+		bt.Add(NewPrimaryTask("bt pt1", func(ctx context.Context) (err error) {
 			v += 1
 			d1 := <-bt1.Done()
 			bt.SetDone("primary 2 done with " + d1.(string))
@@ -110,8 +110,10 @@ func TestBackground(t *testing.T) {
 
 		ctx, finish := context.WithCancel(context.Background())
 		finish()
-		_, ready := BackgroundFlow(ctx, bt)
-		r.Nil(<-ready)
+		ready := BackgroundFlow(ctx, NewConcurrentFlow(), bt)
+		if ready != nil {
+			r.Nil(<-ready)
+		}
 		r.Equal(0, v)
 	})
 }
@@ -147,12 +149,12 @@ func TestBackgroundParallel(t *testing.T) {
 			return nil
 		}))
 		ctx := context.Background()
-		done, ready := BackgroundParallelFlow(ctx, bTask1, bTask2)
+		ready := BackgroundParallelFlow(ctx, NewConcurrentFlow(), bTask1, bTask2)
 		go func() {
-			log.Println(<-done[0])
+			log.Println(<-bTask1.Done())
 		}()
 		go func() {
-			log.Println(<-done[1])
+			log.Println(<-bTask2.Done())
 		}()
 		r.Nil(<-ready[0])
 		r.Nil(<-ready[1])
@@ -186,18 +188,78 @@ func TestBackgroundParallel(t *testing.T) {
 			return nil
 		}))
 		ctx, finish := context.WithCancel(context.Background())
-		done, ready := BackgroundParallelFlow(ctx, bTask1, bTask2)
+		ready := BackgroundParallelFlow(ctx, NewConcurrentFlow(), bTask1, bTask2)
 		go func() {
-			log.Println(<-done[0])
+			log.Println(<-bTask1.Done())
 		}()
 		go func() {
-			log.Println(<-done[1])
+			log.Println(<-bTask2.Done())
 		}()
 		time.Sleep(100 * time.Millisecond)
 		finish()
+		time.Sleep(time.Second)
 
 		r.Nil(<-ready[0])
 		r.Nil(<-ready[1])
-		r.Equal(2, v)
+		r.Equal(3, v)
+	})
+	t.Run("run parallel sync", func(t *testing.T) {
+		v := 0
+
+		syncBall := make(chan struct{})
+		bTask1 := NewBasicTask("bTask1", 4)
+		bTask1.Add(
+			NewPrimaryTask("do job 1", func(ctx context.Context) (err error) {
+				time.Sleep(time.Second)
+				v += 1
+				bTask1.SetDone("task 1 done")
+
+				return nil
+			})).Add(
+			NewPrimaryTask("after job 1", func(ctx context.Context) (err error) {
+				syncBall <- struct{}{}
+				return nil
+			})).Add(
+			NewPrimaryTask("wait job 2", func(ctx context.Context) (err error) {
+				<-syncBall
+				return nil
+			})).Add(
+			NewPrimaryTask("do job 3", func(ctx context.Context) (err error) {
+				time.Sleep(time.Millisecond)
+				v += 1
+				return nil
+			}))
+
+		bTask2 := NewBasicTask("bTask2", 4)
+		bTask2.Add(
+			NewPrimaryTask("wait job 1", func(ctx context.Context) (err error) {
+				<-syncBall
+				return nil
+			})).Add(
+			NewPrimaryTask("do job 2", func(ctx context.Context) (err error) {
+				v += 1
+				bTask2.SetDone("task 2 done")
+				return nil
+			})).Add(
+			NewPrimaryTask("after job 2", func(ctx context.Context) (err error) {
+				syncBall <- struct{}{}
+				return nil
+			})).Add(
+			NewPrimaryTask("do job 4", func(ctx context.Context) (err error) {
+				time.Sleep(time.Second)
+				v += 1
+				return nil
+			}))
+		ctx := context.Background()
+		ready := BackgroundParallelFlow(ctx, nil, bTask1, bTask2)
+		go func() {
+			log.Println(<-bTask1.Done())
+		}()
+		go func() {
+			log.Println(<-bTask2.Done())
+		}()
+		r.Nil(<-ready[0])
+		r.Nil(<-ready[1])
+		r.Equal(4, v)
 	})
 }

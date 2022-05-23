@@ -81,8 +81,8 @@ func (e *EPR60) Setup(cfg EPR60Config) error {
 	return nil
 }
 
-func (e *EPR60) PositionMove(ctx context.Context, pos int, speed, acc uint16, dir bool) error {
-	if err := e.SetPosConfig(pos, speed, acc, dir); err != nil {
+func (e *EPR60) PositionMove(ctx context.Context, acc, speed uint16, pos int, dir bool) error {
+	if err := e.SetPosConfig(acc, speed, pos, dir); err != nil {
 		return err
 	}
 	if err := e.RunPosConfig(); err != nil {
@@ -116,7 +116,7 @@ func (e *EPR60) RunPosConfig() (err error) {
 	return
 }
 
-func (e *EPR60) SetPosConfig(pos int, speed, acc uint16, dir bool) error {
+func (e *EPR60) SetPosConfig(acc, speed uint16, pos int, dir bool) error {
 	lpos := uint16(pos & 0xffff)
 	hpos := uint16(pos >> 16)
 	edir := uint16(0)

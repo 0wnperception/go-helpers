@@ -36,6 +36,7 @@ func NewPrimaryTask(title string, task func(ctx context.Context) (err error)) *P
 }
 
 func (t *PrimaryTask) Run(ctx context.Context, ready chan<- error) {
+
 	ready <- t.task(ctx)
 }
 
@@ -93,20 +94,32 @@ func (t *BasicTask) GetTitle() string {
 	return t.title
 }
 
-func BackgroundFlow(ctx context.Context, t *BasicTask) (done <-chan interface{}, ready <-chan error) {
-	r := make(chan error, 1)
-	go runBackgroundFlow(ctx, t, r)
-	return t.Done(), r
+func BackgroundFlow(ctx context.Context, con *ConcurrentFlow, bTasks ...*BasicTask) (ready <-chan error) {
+	ok := true
+	if con != nil {
+		ok = con.Borrow(ctx)
+	}
+	if ok {
+		r := make(chan error, 1)
+		ready = r
+		go runBackgroundFlow(ctx, con, r, bTasks)
+	}
+	return
 }
 
-func runBackgroundFlow(ctx context.Context, t *BasicTask, ready chan<- error) {
+func runBackgroundFlow(ctx context.Context, con *ConcurrentFlow, ready chan<- error, bTasks []*BasicTask) {
 	locReady := make(chan error, 1)
-	jobs := t.GetSubTasks()
+	var subTasks []*PrimaryTask
+	for _, task := range bTasks {
+		subTasks = append(subTasks, task.GetSubTasks()...)
+	}
 JOBS:
-	for _, job := range jobs {
-		go job.Run(ctx, locReady)
+	for _, task := range subTasks {
+		log.Printf("run %s ", task.GetTitle())
+		go task.Run(ctx, locReady)
 		select {
 		case err := <-locReady:
+			log.Printf("finished %s ", task.GetTitle())
 			if err != nil {
 				ready <- err
 				break JOBS
@@ -116,24 +129,31 @@ JOBS:
 		}
 	}
 	close(ready)
-	return
-}
-
-func BackgroundParallelFlow(ctx context.Context, bTasks ...*BasicTask) (done []<-chan interface{}, ready []<-chan error) {
-	done = make([]<-chan interface{}, len(bTasks))
-	ready = make([]<-chan error, len(bTasks))
-	r := make([]chan error, len(bTasks))
-	for i, bt := range bTasks {
-		done[i] = bt.Done()
-		tmpReady := make(chan error, 1)
-		ready[i] = tmpReady
-		r[i] = tmpReady
+	if con != nil {
+		con.SettleUp()
 	}
-	go runBackgroundParallelFlow(ctx, bTasks, r)
 	return
 }
 
-func runBackgroundParallelFlow(ctx context.Context, bTasks []*BasicTask, ready []chan error) {
+func BackgroundParallelFlow(ctx context.Context, con *ConcurrentFlow, bTasks ...*BasicTask) (ready []<-chan error) {
+	ok := true
+	if con != nil {
+		ok = con.Borrow(ctx)
+	}
+	if ok {
+		ready = make([]<-chan error, len(bTasks))
+		r := make([]chan error, len(bTasks))
+		for i, _ := range bTasks {
+			tmpReady := make(chan error, 1)
+			ready[i] = tmpReady
+			r[i] = tmpReady
+		}
+		go runBackgroundParallelFlow(ctx, con, bTasks, r)
+	}
+	return
+}
+
+func runBackgroundParallelFlow(ctx context.Context, con *ConcurrentFlow, bTasks []*BasicTask, ready []chan error) {
 	if len(bTasks) > 0 {
 		locReady := make(chan *ReadyPair, len(bTasks))
 		counterArr := make([]int, len(bTasks))
@@ -154,6 +174,9 @@ func runBackgroundParallelFlow(ctx context.Context, bTasks []*BasicTask, ready [
 					counterArr[rp.number] = -1
 					ready[rp.number] <- rp.err
 				} else {
+					if counterArr[rp.number] > 0 {
+						log.Printf("finished %s %s", bTasks[rp.number].GetTitle(), subTasksArr[rp.number][counterArr[rp.number]-1].GetTitle())
+					}
 					if counterArr[rp.number] < len(subTasksArr[rp.number]) {
 						log.Printf("run %s %s", bTasks[rp.number].GetTitle(), subTasksArr[rp.number][counterArr[rp.number]].GetTitle())
 						go subTasksArr[rp.number][counterArr[rp.number]].RunParallel(ctx, locReady, rp.number)
@@ -180,5 +203,43 @@ func runBackgroundParallelFlow(ctx context.Context, bTasks []*BasicTask, ready [
 	for _, r := range ready {
 		close(r)
 	}
+	if con != nil {
+		con.SettleUp()
+	}
 	return
+}
+
+type ConcurrentFlow struct {
+	busy        chan bool
+	isAvailable bool
+}
+
+func NewConcurrentFlow() *ConcurrentFlow {
+	return &ConcurrentFlow{
+		busy:        make(chan bool, 1),
+		isAvailable: true,
+	}
+}
+
+func (c *ConcurrentFlow) Borrow(ctx context.Context) (ok bool) {
+	select {
+	case c.busy <- true:
+		c.isAvailable = false
+		ok = true
+		break
+	case <-ctx.Done():
+		ok = false
+		break
+	}
+	return
+}
+
+func (c *ConcurrentFlow) SettleUp() {
+	if !c.isAvailable {
+		c.isAvailable = <-c.busy
+	}
+}
+
+func (c *ConcurrentFlow) IsAvailable() bool {
+	return c.isAvailable
 }
