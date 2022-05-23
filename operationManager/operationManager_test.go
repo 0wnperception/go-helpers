@@ -2,6 +2,7 @@ package operationManager
 
 import (
 	"context"
+	"go-helpers/concurrent"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,8 @@ func BenchmarkOperationManager(b *testing.B) {
 				return nil
 			})
 		}
-		m.Run(context.Background(), p)
+		_, ready := m.Run(context.Background(), concurrent.NewConcurrent(concurrent.ConcurrentConfig{SimCapacity: 1}), p)
+		<-ready
 	})
 }
 
@@ -41,7 +43,9 @@ func TestOperationManager(t *testing.T) {
 		r.Len(m.operations, 1)
 		r.Equal(m.operationsQueue.Len(), 1)
 		t.Log("operations array len is good")
-		m.Run(context.Background(), p)
+		_, ready := m.Run(context.Background(), concurrent.NewConcurrent(concurrent.ConcurrentConfig{SimCapacity: 1}), p)
+		r.NotNil(ready)
+		<-ready
 		r.Equal(1, m.operationsQueue.Len())
 		r.Equal(1, p.num)
 	})
@@ -64,7 +68,9 @@ func TestOperationManager(t *testing.T) {
 		t.Log("op added")
 		r.Len(m.operations, 3)
 		t.Log("operations array len is good")
-		m.Run(context.Background(), p)
+		_, ready := m.Run(context.Background(), concurrent.NewConcurrent(concurrent.ConcurrentConfig{SimCapacity: 1}), p)
+		r.NotNil(ready)
+		<-ready
 		r.Equal(p.num, 7)
 		r.Len(m.operations, 3)
 		r.Equal(m.operationsQueue.Len(), 3)

@@ -199,12 +199,12 @@ func (e *EPR60) EmergencyStop(ctx context.Context) error {
 	return e.CheckStoped(ctx)
 }
 
-func (e *EPR60) DecStopAxisOnSensor(ctx context.Context, idx uint16, state bool) (err error) {
+func (e *EPR60) DecStopAxisOnSensor(ctx context.Context, getSensorState func(ctx context.Context) (in bool, err error), state bool) (err error) {
 	pollTicker := time.NewTicker(1 * time.Millisecond)
 	for {
 		select {
 		case <-pollTicker.C:
-			if sensor, tmperr := e.GetInputState(idx); tmperr != nil {
+			if sensor, tmperr := getSensorState(ctx); tmperr != nil {
 				err = tmperr
 				return
 			} else {
@@ -219,12 +219,12 @@ func (e *EPR60) DecStopAxisOnSensor(ctx context.Context, idx uint16, state bool)
 	}
 }
 
-func (e *EPR60) EmergencyStopAxisOnSensor(ctx context.Context, idx uint16, state bool) (err error) {
+func (e *EPR60) EmergencyStopAxisOnSensor(ctx context.Context, getSensorState func(ctx context.Context) (in bool, err error), state bool) (err error) {
 	pollTicker := time.NewTicker(1 * time.Millisecond)
 	for {
 		select {
 		case <-pollTicker.C:
-			if sensor, tmperr := e.GetInputState(idx); tmperr != nil {
+			if sensor, tmperr := getSensorState(ctx); tmperr != nil {
 				err = tmperr
 				return
 			} else {

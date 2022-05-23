@@ -2,13 +2,14 @@ package operationManager
 
 import (
 	"context"
+	"go-helpers/concurrent"
 	"go-helpers/queue"
 	"sync"
 )
 
-type OperationManager[IDT comparable, TA any] struct {
+type OperationManager[IDT comparable, TP any] struct {
 	locker          sync.Locker
-	operations      map[IDT]func(ctx context.Context, args TA) error
+	operations      map[IDT]func(ctx context.Context, params TP) error
 	operationsQueue *queue.Queue[IDT]
 	tmpQueue        *queue.Queue[IDT]
 	done            chan error
@@ -16,10 +17,10 @@ type OperationManager[IDT comparable, TA any] struct {
 	err             chan error
 }
 
-func NewOperationManager[IDT comparable, TA any](maxops int) *OperationManager[IDT, TA] {
-	return &OperationManager[IDT, TA]{
+func NewOperationManager[IDT comparable, TP any](maxops int) *OperationManager[IDT, TP] {
+	return &OperationManager[IDT, TP]{
 		locker:          &sync.RWMutex{},
-		operations:      make(map[IDT]func(ctx context.Context, args TA) error, maxops),
+		operations:      make(map[IDT]func(ctx context.Context, params TP) error, maxops),
 		operationsQueue: queue.NewQueue[IDT](maxops),
 		done:            make(chan error, 1),
 		ready:           make(chan error, 1),
@@ -27,14 +28,27 @@ func NewOperationManager[IDT comparable, TA any](maxops int) *OperationManager[I
 	}
 }
 
-func (m *OperationManager[IDT, TA]) AddOperation(ID IDT, op func(ctx context.Context, args TA) error) {
+func (m *OperationManager[IDT, TP]) AddOperation(ID IDT, op func(ctx context.Context, params TP) error) {
 	m.locker.Lock()
 	m.operations[ID] = op
 	m.locker.Unlock()
 	m.operationsQueue.Push(ID)
 }
 
-func (m *OperationManager[IDT, TA]) Run(ctx context.Context, args TA) error {
+func (m *OperationManager[IDT, TP]) Run(ctx context.Context, concurrent *concurrent.Concurrent, params TP) (done <-chan error, ready <-chan error) {
+	if concurrent != nil {
+		if ok := concurrent.Borrow(ctx); ok {
+			go m.run(ctx, concurrent, params)
+			return m.done, m.ready
+		}
+	} else {
+		go m.run(ctx, concurrent, params)
+		return m.done, m.ready
+	}
+	return nil, nil
+}
+
+func (m *OperationManager[IDT, TP]) run(ctx context.Context, concurrent *concurrent.Concurrent, params TP) {
 	if len(m.err) > 0 {
 		<-m.err
 	}
@@ -45,43 +59,43 @@ func (m *OperationManager[IDT, TA]) Run(ctx context.Context, args TA) error {
 		case e := <-m.err:
 			if e != nil {
 				m.SetDone(e)
-				m.setReady(nil)
-				return e
+				m.setReady(concurrent, nil)
+				return
 			} else {
 				if opID, ok := m.tmpQueue.Pull(); ok {
-					go m.runOperation(ctx, opID, args, m.err)
+					go m.runOperation(ctx, opID, params, m.err)
 				} else {
 					if len(m.done) == 0 {
 						m.SetDone(nil)
 					}
-					m.setReady(nil)
-					return nil
+					m.setReady(concurrent, nil)
+					return
 				}
 			}
 		case <-ctx.Done():
-			return nil
+			m.setReady(concurrent, nil)
+			return
 		}
 	}
 }
 
-func (m *OperationManager[IDT, TA]) SetDone(err error) {
+func (m *OperationManager[IDT, TP]) SetDone(err error) {
 	if len(m.done) > 0 {
 		<-m.done
 	}
 	m.done <- err
 }
 
-func (m *OperationManager[IDT, TA]) setReady(err error) {
+func (m *OperationManager[IDT, TP]) setReady(concurrent *concurrent.Concurrent, err error) {
 	if len(m.ready) > 0 {
 		<-m.ready
 	}
 	m.ready <- err
+	if concurrent != nil {
+		concurrent.SettleUp()
+	}
 }
 
-func (m *OperationManager[IDT, TA]) GetProgressChans() (done <-chan error, ready <-chan error) {
-	return m.done, m.ready
-}
-
-func (m *OperationManager[IDT, TA]) runOperation(ctx context.Context, id IDT, args TA, err chan error) {
-	err <- m.operations[id](ctx, args)
+func (m *OperationManager[IDT, TP]) runOperation(ctx context.Context, id IDT, params TP, err chan error) {
+	err <- m.operations[id](ctx, params)
 }
