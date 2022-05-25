@@ -69,7 +69,7 @@ func (mc *MqttConnector) Handle(observer Observer) error {
 
 func (mc *MqttConnector) Subscripe(topic string, callback func([]byte)) error {
 	if token := mc.client.Subscribe(topic, 1, func(client mqtt.Client, msg mqtt.Message) {
-		callback(msg.Payload())
+		go callback(msg.Payload())
 	}); token.Wait() && token.Error() != nil {
 		return token.Error()
 	}

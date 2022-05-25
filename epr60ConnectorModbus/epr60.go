@@ -95,7 +95,7 @@ func (e *EPR60) PositionMove(ctx context.Context, acc, speed uint16, pos int, di
 }
 
 func (e *EPR60) CheckPosConfig(ctx context.Context) error {
-	pollTicker := time.NewTicker(1 * time.Second)
+	pollTicker := time.NewTicker(POLL_TIMEOUT * time.Millisecond)
 	for {
 		select {
 		case <-pollTicker.C:
@@ -159,14 +159,14 @@ func (e *EPR60) PollCheckPosCompleted() error {
 	return nil
 }
 
-func (e *EPR60) SpeedMove(speed, acc uint16, dir bool) error {
+func (e *EPR60) SpeedMove(acc, speed uint16, dir bool) error {
 	if err := e.SetSpeedConfig(speed, acc, dir); err != nil {
 		panic(err)
 	}
 	return e.RunSpeedConfig()
 }
 
-func (e *EPR60) SetSpeedConfig(speed, acc uint16, dir bool) error {
+func (e *EPR60) SetSpeedConfig(acc, speed uint16, dir bool) error {
 	edir := uint16(0)
 	if dir {
 		edir = 1
@@ -200,7 +200,7 @@ func (e *EPR60) EmergencyStop(ctx context.Context) error {
 }
 
 func (e *EPR60) DecStopAxisOnSensor(ctx context.Context, getSensorState func(ctx context.Context) (in bool, err error), state bool) (err error) {
-	pollTicker := time.NewTicker(1 * time.Millisecond)
+	pollTicker := time.NewTicker(POLL_TIMEOUT * time.Millisecond)
 	for {
 		select {
 		case <-pollTicker.C:
@@ -220,7 +220,7 @@ func (e *EPR60) DecStopAxisOnSensor(ctx context.Context, getSensorState func(ctx
 }
 
 func (e *EPR60) EmergencyStopAxisOnSensor(ctx context.Context, getSensorState func(ctx context.Context) (in bool, err error), state bool) (err error) {
-	pollTicker := time.NewTicker(1 * time.Millisecond)
+	pollTicker := time.NewTicker(POLL_TIMEOUT * time.Millisecond)
 	for {
 		select {
 		case <-pollTicker.C:
@@ -240,7 +240,7 @@ func (e *EPR60) EmergencyStopAxisOnSensor(ctx context.Context, getSensorState fu
 }
 
 func (e *EPR60) CheckStoped(ctx context.Context) error {
-	pollTicker := time.NewTicker(1 * time.Millisecond)
+	pollTicker := time.NewTicker(POLL_TIMEOUT * time.Millisecond)
 	for {
 		select {
 		case <-pollTicker.C:

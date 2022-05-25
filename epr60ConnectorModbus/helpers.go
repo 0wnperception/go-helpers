@@ -22,7 +22,7 @@ func (e *EPR60) CalibrateFast(ctx context.Context,
 
 	if !sensor {
 		log.Printf("run %s forward..", e.GetName())
-		if err := e.SpeedMove(Speed, Acc, Dir); err != nil {
+		if err := e.SpeedMove(Acc, Speed, Dir); err != nil {
 			return err
 		}
 		log.Printf("wait %s calibration sensor..", e.GetName())
@@ -52,7 +52,7 @@ func (e *EPR60) CalibrateSlow(ctx context.Context,
 
 	if !sensor {
 		log.Printf("run %s forward..", e.GetName())
-		if err := e.SpeedMove(SpeedHigh, Acc, Dir); err != nil {
+		if err := e.SpeedMove(Acc, SpeedHigh, Dir); err != nil {
 			return err
 		}
 		log.Printf("wait %s calibration sensor..", e.GetName())
@@ -62,7 +62,7 @@ func (e *EPR60) CalibrateSlow(ctx context.Context,
 	}
 
 	log.Printf("run %s back..", e.GetName())
-	if err = e.SpeedMove(SpeedLow, Acc, !Dir); err != nil {
+	if err = e.SpeedMove(Acc, SpeedLow, !Dir); err != nil {
 		return err
 	}
 	log.Printf("wait %s calibration sensor..", e.GetName())
@@ -82,27 +82,16 @@ type SyncOpts struct {
 	Dir   bool
 }
 
-func (e *EPR60) PositionMoveSync(ctx context.Context, acc, speed uint16, pos int, dir bool, opts ...SyncOpts) (err error) {
+func PositionMoveSync(ctx context.Context, opts ...SyncOpts) (err error) {
+	tStart := time.Now()
 	//setting config of movement
-	if err = e.SetPosConfig(acc, speed, pos, dir); err != nil {
-		return
-	}
 	for _, opt := range opts {
 		if err = opt.Axis.SetPosConfig(opt.Acc, opt.Speed, opt.Pos, opt.Dir); err != nil {
 			return
 		}
 	}
-
-	tStart := time.Now()
 	//running motors
-	go func(err *error) {
-		*err = e.RunPosConfig()
-		log.Printf("run %s %v", e.GetName(), time.Now().Sub(tStart))
-	}(&err)
 	for _, opt := range opts {
-		if err != nil {
-			break
-		}
 		go func(op SyncOpts, err *error) {
 			*err = op.Axis.RunPosConfig()
 			log.Printf("run %s %v", op.Axis.GetName(), time.Now().Sub(tStart))
@@ -113,9 +102,6 @@ func (e *EPR60) PositionMoveSync(ctx context.Context, acc, speed uint16, pos int
 		return
 	}
 	//check movement completed
-	if err := e.CheckPosConfig(ctx); err != nil {
-		return err
-	}
 	for _, opt := range opts {
 		if err := opt.Axis.CheckPosConfig(ctx); err != nil {
 			return err

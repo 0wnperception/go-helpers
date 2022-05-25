@@ -36,7 +36,6 @@ func NewPrimaryTask(title string, task func(ctx context.Context) (err error)) *P
 }
 
 func (t *PrimaryTask) Run(ctx context.Context, ready chan<- error) {
-
 	ready <- t.task(ctx)
 }
 
@@ -73,7 +72,8 @@ func (t *BasicTask) Add(task Task) *BasicTask {
 }
 
 func (t *BasicTask) GetSubTasks() (subTasks []*PrimaryTask) {
-	for _, task := range t.subTasks {
+	for i := 0; i < t.amount; i++ {
+		task := t.subTasks[i]
 		subTasks = append(subTasks, task.GetSubTasks()...)
 	}
 	return
