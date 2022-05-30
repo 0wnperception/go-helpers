@@ -91,8 +91,8 @@ visual stdout
 - go tool pprof ./mem.out
 - go tool pprof ./mutex.out
 - go tool trace ./trace.out
-- go tool cover -func=coverage.out
-- go tool cover -html=coverage.out
+- go tool cover -func=cover.out
+- go tool cover -html=cover.out
 
 ### PPROF OPTIONS ###
 - top

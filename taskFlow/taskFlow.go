@@ -2,244 +2,273 @@ package taskFlow
 
 import (
 	"context"
-	"log"
+	"sync"
 )
 
-type BasicTask struct {
-	title    string
-	done     chan interface{}
-	amount   int
-	capacity int
-	subTasks []Task
+type Logger interface {
+	Debug(v ...any)
+	Debugf(format string, v ...any)
+	Info(v ...any)
+	Infof(format string, v ...any)
+	Warn(v ...any)
+	Warnf(format string, v ...any)
+	Error(v ...any)
+	Errorf(format string, v ...any)
+	Fatal(v ...any)
+	Fatalf(format string, v ...any)
 }
 
-type Task interface {
-	GetTitle() string
-	GetSubTasks() []*PrimaryTask
+type FlowResultCode int
+
+const (
+	ORIGINAL_RESULTS_CAP = 3
+)
+
+type Results struct {
+	locker          sync.Locker
+	notifierStarted bool
+	notifyAll       bool
+	notifierStoped  bool
+	notifications   map[string]map[FlowResultCode]chan *Result
+	results         chan *Result
 }
 
-type PrimaryTask struct {
-	title string
-	task  func(ctx context.Context) (err error)
+type Result struct {
+	ID         string
+	Code       FlowResultCode
+	Err        error
+	IsOriginal bool
+	Payload    interface{}
 }
 
-type ReadyPair struct {
-	number int
-	err    error
-}
-
-func NewPrimaryTask(title string, task func(ctx context.Context) (err error)) *PrimaryTask {
-	return &PrimaryTask{
-		title: title,
-		task:  task,
+func newResults() *Results {
+	return &Results{
+		locker:        &sync.RWMutex{},
+		notifications: make(map[string]map[FlowResultCode]chan *Result),
+		results:       make(chan *Result, ORIGINAL_RESULTS_CAP),
 	}
 }
 
-func (t *PrimaryTask) Run(ctx context.Context, ready chan<- error) {
-	ready <- t.task(ctx)
-}
-
-func (t *PrimaryTask) RunParallel(ctx context.Context, ready chan<- *ReadyPair, number int) {
-	ready <- &ReadyPair{
-		err:    t.task(ctx),
-		number: number,
-	}
-}
-
-func (t *PrimaryTask) GetSubTasks() []*PrimaryTask {
-	return []*PrimaryTask{t}
-}
-
-func (t *PrimaryTask) GetTitle() string {
-	return t.title
-}
-
-func NewBasicTask(title string, capacity int) *BasicTask {
-	return &BasicTask{
-		title:    title,
-		done:     make(chan interface{}, 1),
-		capacity: capacity,
-		subTasks: make([]Task, capacity),
-	}
-}
-
-func (t *BasicTask) Add(task Task) *BasicTask {
-	if t.amount < t.capacity {
-		t.subTasks[t.amount] = task
-		t.amount++
-	}
-	return t
-}
-
-func (t *BasicTask) GetSubTasks() (subTasks []*PrimaryTask) {
-	for i := 0; i < t.amount; i++ {
-		task := t.subTasks[i]
-		subTasks = append(subTasks, task.GetSubTasks()...)
+func (r *Results) NotifyAll() (chResult <-chan *Result) {
+	if !r.notifierStarted {
+		r.notifyAll = true
+		chResult = r.results
 	}
 	return
 }
 
-func (t *BasicTask) SetDone(done interface{}) {
-	if len(t.done) > 0 {
-		<-t.done
-	}
-	t.done <- done
-	close(t.done)
-}
-func (t *BasicTask) Done() <-chan interface{} {
-	return t.done
-}
+func (r *Results) NotifyWith(code FlowResultCode, ID string) (chResult <-chan *Result) {
+	if !r.notifyAll {
+		if n, ok := r.notifications[ID]; ok {
+			if ch, ok := n[code]; ok {
+				chResult = ch
+			} else {
+				ch := make(chan *Result)
+				r.locker.Lock()
+				n[code] = ch
+				r.locker.Unlock()
+				chResult = ch
+			}
+		} else {
+			r.notifications[ID] = make(map[FlowResultCode]chan *Result)
+			ch := make(chan *Result)
+			r.notifications[ID][code] = ch
+			chResult = ch
+		}
 
-func (t *BasicTask) GetTitle() string {
-	return t.title
-}
-
-func BackgroundFlow(ctx context.Context, con *ConcurrentFlow, bTasks ...*BasicTask) (ready <-chan error) {
-	ok := true
-	if con != nil {
-		ok = con.Borrow(ctx)
-	}
-	if ok {
-		r := make(chan error, 1)
-		ready = r
-		go runBackgroundFlow(ctx, con, r, bTasks)
+		if !r.notifierStarted {
+			r.notifierStarted = true
+			go r.startNotifier()
+		}
 	}
 	return
 }
 
-func runBackgroundFlow(ctx context.Context, con *ConcurrentFlow, ready chan<- error, bTasks []*BasicTask) {
-	locReady := make(chan error, 1)
-	var subTasks []*PrimaryTask
-	for _, task := range bTasks {
-		subTasks = append(subTasks, task.GetSubTasks()...)
-	}
-JOBS:
-	for _, task := range subTasks {
-		log.Printf("run %s ", task.GetTitle())
-		go task.Run(ctx, locReady)
+func (r *Results) startNotifier() {
+	for {
 		select {
-		case err := <-locReady:
-			log.Printf("finished %s ", task.GetTitle())
-			if err != nil {
-				ready <- err
-				break JOBS
-			}
-		case <-ctx.Done():
-			break JOBS
-		}
-	}
-	close(ready)
-	if con != nil {
-		con.SettleUp()
-	}
-	return
-}
-
-func BackgroundParallelFlow(ctx context.Context, con *ConcurrentFlow, bTasks ...*BasicTask) (ready []<-chan error) {
-	ok := true
-	if con != nil {
-		ok = con.Borrow(ctx)
-	}
-	if ok {
-		ready = make([]<-chan error, len(bTasks))
-		r := make([]chan error, len(bTasks))
-		for i, _ := range bTasks {
-			tmpReady := make(chan error, 1)
-			ready[i] = tmpReady
-			r[i] = tmpReady
-		}
-		go runBackgroundParallelFlow(ctx, con, bTasks, r)
-	}
-	return
-}
-
-func runBackgroundParallelFlow(ctx context.Context, con *ConcurrentFlow, bTasks []*BasicTask, ready []chan error) {
-	if len(bTasks) > 0 {
-		locReady := make(chan *ReadyPair, len(bTasks))
-		counterArr := make([]int, len(bTasks))
-		subTasksArr := make([][]*PrimaryTask, len(bTasks))
-
-		for idx, job := range bTasks {
-			subTasksArr[idx] = job.GetSubTasks()
-			locReady <- &ReadyPair{
-				err:    nil,
-				number: idx,
-			}
-		}
-	PROCESSING:
-		for {
-			select {
-			case rp := <-locReady:
-				if rp.err != nil {
-					counterArr[rp.number] = -1
-					ready[rp.number] <- rp.err
-				} else {
-					if counterArr[rp.number] > 0 {
-						log.Printf("finished %s %s", bTasks[rp.number].GetTitle(), subTasksArr[rp.number][counterArr[rp.number]-1].GetTitle())
-					}
-					if counterArr[rp.number] < len(subTasksArr[rp.number]) {
-						log.Printf("run %s %s", bTasks[rp.number].GetTitle(), subTasksArr[rp.number][counterArr[rp.number]].GetTitle())
-						go subTasksArr[rp.number][counterArr[rp.number]].RunParallel(ctx, locReady, rp.number)
-						counterArr[rp.number]++
-					} else {
-						counterArr[rp.number] = -1
-						finish := true
-						for _, counter := range counterArr {
-							if counter != -1 {
-								finish = false
-								break
-							}
+		case res := <-r.results:
+			if res != nil {
+				if n, ok := r.notifications[res.ID]; ok {
+					if ch, ok := n[res.Code]; ok {
+						if len(ch) == cap(ch) {
+							<-ch
 						}
-						if finish {
-							break PROCESSING
-						}
+						ch <- res
 					}
 				}
-			case <-ctx.Done():
-				break PROCESSING
+			} else {
+				return
 			}
 		}
 	}
-	for _, r := range ready {
-		close(r)
+}
+
+func (r *Results) stopNotifier() {
+	r.locker.Lock()
+	r.notifierStoped = true
+	close(r.results)
+	r.locker.Unlock()
+}
+
+func (r *Results) setResult(result *Result) {
+	if !r.notifierStoped {
+		r.locker.Lock()
+		if len(r.results) == cap(r.results) {
+			<-r.results
+		}
+		r.results <- result
+		r.locker.Unlock()
 	}
-	if con != nil {
-		con.SettleUp()
+}
+
+type FlowConfig struct {
+}
+
+type Flow struct {
+	id               string
+	isOriginal       bool
+	task             func(ctx context.Context) (err error)
+	subFlowsAmount   int
+	subFlowsCapacity int
+	subFlows         []*Flow
+	nextFlow         *Flow
+	results          *Results
+}
+
+func New(id string, subFlowsCapacity int) *Flow {
+	var subFlows []*Flow
+	if subFlowsCapacity > 0 {
+		subFlows = make([]*Flow, subFlowsCapacity)
 	}
+	return &Flow{
+		id:               id,
+		subFlowsCapacity: subFlowsCapacity,
+		subFlows:         subFlows,
+	}
+}
+
+func (f *Flow) Sub(subFlow *Flow) *Flow {
+	if f.subFlowsCapacity > 0 {
+		f.subFlows[f.subFlowsAmount] = subFlow
+		f.subFlowsCapacity--
+		f.subFlowsAmount++
+		return subFlow
+	} else {
+		return nil
+	}
+}
+
+func (f *Flow) Next(nextFlow *Flow) (next *Flow) {
+	f.nextFlow = nextFlow
+	return f.nextFlow
+}
+
+func (f *Flow) Task(task func(ctx context.Context) (err error)) *Flow {
+	f.task = task
+	return f
+}
+
+type FlowRunConfig struct {
+	Ctx                     context.Context
+	Log                     Logger
+	FlowResultCodeCompleted FlowResultCode
+	FlowResultCodeWithError FlowResultCode
+}
+
+func (f *Flow) Run(cfg FlowRunConfig) (done chan error, results *Results) {
+	results = newResults()
+	d := make(chan error, 1)
+	done = d
+	f.setResults(results)
+	f.setOriginal(true)
+	go f.run(cfg, d)
 	return
 }
 
-type ConcurrentFlow struct {
-	busy        chan bool
-	isAvailable bool
+func (f *Flow) setResults(results *Results) {
+	f.results = results
 }
 
-func NewConcurrentFlow() *ConcurrentFlow {
-	return &ConcurrentFlow{
-		busy:        make(chan bool, 1),
-		isAvailable: true,
+func (f *Flow) setOriginal(state bool) {
+	f.isOriginal = state
+}
+
+func (f *Flow) run(cfg FlowRunConfig, done chan error) {
+	if cfg.Log != nil {
+		cfg.Log.Debugf("run flow '%s'", f.id)
+	}
+	if err := f.processTask(cfg); err != nil {
+		if cfg.Log != nil {
+			cfg.Log.Errorf("finish flow '%s' with error '%s'", f.id, err.Error())
+		}
+		f.FlowResult(cfg.FlowResultCodeWithError, nil, err)
+		done <- err
+		if f.isOriginal {
+			f.results.stopNotifier()
+			close(done)
+		}
+	} else {
+		f.processSubFlows(cfg)
+		if cfg.Log != nil {
+			cfg.Log.Debugf("finish flow '%s'", f.id)
+		}
+		f.FlowResult(cfg.FlowResultCodeCompleted, nil, nil)
+
+		if cfg.Ctx.Err() == nil && f.nextFlow != nil {
+			f.nextFlow.setResults(f.results)
+			f.nextFlow.setOriginal(f.isOriginal)
+			go f.nextFlow.run(cfg, done)
+		} else {
+			done <- nil
+			if f.isOriginal {
+				f.results.stopNotifier()
+				close(done)
+			}
+		}
 	}
 }
 
-func (c *ConcurrentFlow) Borrow(ctx context.Context) (ok bool) {
-	select {
-	case c.busy <- true:
-		c.isAvailable = false
-		ok = true
-		break
-	case <-ctx.Done():
-		ok = false
-		break
+func (f *Flow) processTask(cfg FlowRunConfig) error {
+	if f.task != nil {
+		if err := f.task(cfg.Ctx); err != nil {
+			return err
+		}
 	}
-	return
+	return nil
 }
 
-func (c *ConcurrentFlow) SettleUp() {
-	if !c.isAvailable {
-		c.isAvailable = <-c.busy
+func (f *Flow) processSubFlows(cfg FlowRunConfig) {
+	if len(f.subFlows) > 0 {
+		done := make(chan error, len(f.subFlows))
+		for subID := 0; subID < f.subFlowsAmount; subID++ {
+			if cfg.Ctx.Err() == nil {
+				f.subFlows[subID].setOriginal(false)
+				f.subFlows[subID].setResults(f.results)
+				go f.subFlows[subID].run(cfg, done)
+			}
+		}
+		for subID := 0; subID < f.subFlowsAmount; subID++ {
+			if cfg.Ctx.Err() == nil {
+				select {
+				case <-done:
+				case <-cfg.Ctx.Done():
+				}
+			} else {
+				break
+			}
+		}
 	}
 }
 
-func (c *ConcurrentFlow) IsAvailable() bool {
-	return c.isAvailable
+func (f *Flow) FlowResult(code FlowResultCode, payload interface{}, err error) {
+	if f.results != nil {
+		f.results.setResult(&Result{
+			ID:         f.id,
+			IsOriginal: f.isOriginal,
+			Code:       code,
+			Payload:    payload,
+			Err:        err,
+		})
+	}
 }
