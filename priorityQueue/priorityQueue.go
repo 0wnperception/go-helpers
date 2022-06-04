@@ -91,11 +91,12 @@ func (q *PQueue[T]) Pull() (t T, ok bool) {
 	return
 }
 
-func (q *PQueue[T]) Pop(v T) (ok bool) {
+func (q *PQueue[T]) Pop(v T) (old T, ok bool) {
 	if q.len > 0 {
 		q.Lock()
 		for idx, tmp, prev := 0, q.head, q.head; idx < q.len; idx, prev, tmp = idx+1, tmp, q.mem[tmp].next {
 			if q.mem[tmp].val == v {
+				old = v
 				switch tmp {
 				case q.head:
 					q.head = q.mem[q.head].next

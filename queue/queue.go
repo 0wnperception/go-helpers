@@ -41,6 +41,10 @@ func (q *Queue[T]) Copy() *Queue[T] {
 	return tmp
 }
 
+func (q *Queue[T]) Head() (t T, ok bool) {
+	return q.mem[q.head].val, q.len > 0
+}
+
 func (q *Queue[T]) Push(v T) (ok bool) {
 	if q.cap > 0 {
 		q.Lock()
@@ -72,11 +76,12 @@ func (q *Queue[T]) Pull() (val T, ok bool) {
 	return
 }
 
-func (q *Queue[T]) Pop(v T) (ok bool) {
+func (q *Queue[T]) Pop(v T) (old T, ok bool) {
 	if q.len > 0 {
 		q.Lock()
 		for idx, tmp, prev := 0, q.head, q.head; idx < q.len; idx, prev, tmp = idx+1, tmp, q.mem[tmp].next {
 			if q.mem[tmp].val == v {
+				old = v
 				switch tmp {
 				case q.head:
 					q.head = q.mem[q.head].next
