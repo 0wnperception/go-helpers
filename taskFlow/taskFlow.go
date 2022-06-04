@@ -2,6 +2,7 @@ package taskFlow
 
 import (
 	"context"
+	"log"
 	"sync"
 )
 
@@ -36,7 +37,6 @@ type Results struct {
 type Result struct {
 	ID         string
 	Code       FlowResultCode
-	Err        error
 	IsOriginal bool
 	Payload    interface{}
 }
@@ -63,15 +63,16 @@ func (r *Results) NotifyWith(code FlowResultCode, ID string) (chResult <-chan *R
 			if ch, ok := n[code]; ok {
 				chResult = ch
 			} else {
-				ch := make(chan *Result)
+				ch := make(chan *Result, 1)
 				r.locker.Lock()
 				n[code] = ch
 				r.locker.Unlock()
 				chResult = ch
 			}
 		} else {
+			log.Println("register notification  ", code, " ", ID)
 			r.notifications[ID] = make(map[FlowResultCode]chan *Result)
-			ch := make(chan *Result)
+			ch := make(chan *Result, 1)
 			r.notifications[ID][code] = ch
 			chResult = ch
 		}
@@ -85,15 +86,18 @@ func (r *Results) NotifyWith(code FlowResultCode, ID string) (chResult <-chan *R
 }
 
 func (r *Results) startNotifier() {
+	log.Println("start notifier")
 	for {
 		select {
 		case res := <-r.results:
+			log.Println("got notify ", res)
 			if res != nil {
 				if n, ok := r.notifications[res.ID]; ok {
 					if ch, ok := n[res.Code]; ok {
 						if len(ch) == cap(ch) {
 							<-ch
 						}
+						log.Println("notify chan", res)
 						ch <- res
 					}
 				}
@@ -202,7 +206,7 @@ func (f *Flow) run(cfg FlowRunConfig, done chan error) {
 		if cfg.Log != nil {
 			cfg.Log.Errorf("finish flow '%s' with error '%s'", f.id, err.Error())
 		}
-		f.FlowResult(cfg.FlowResultCodeWithError, nil, err)
+		f.FlowResult(cfg.FlowResultCodeWithError, err)
 		done <- err
 		if f.isOriginal {
 			f.results.stopNotifier()
@@ -213,14 +217,14 @@ func (f *Flow) run(cfg FlowRunConfig, done chan error) {
 		if cfg.Log != nil {
 			cfg.Log.Debugf("finish flow '%s'", f.id)
 		}
-		f.FlowResult(cfg.FlowResultCodeCompleted, nil, nil)
+		f.FlowResult(cfg.FlowResultCodeCompleted, nil)
 
 		if cfg.Ctx.Err() == nil && f.nextFlow != nil {
 			f.nextFlow.setResults(f.results)
 			f.nextFlow.setOriginal(f.isOriginal)
 			go f.nextFlow.run(cfg, done)
 		} else {
-			done <- nil
+			done <- cfg.Ctx.Err()
 			if f.isOriginal {
 				f.results.stopNotifier()
 				close(done)
@@ -261,14 +265,13 @@ func (f *Flow) processSubFlows(cfg FlowRunConfig) {
 	}
 }
 
-func (f *Flow) FlowResult(code FlowResultCode, payload interface{}, err error) {
+func (f *Flow) FlowResult(code FlowResultCode, payload interface{}) {
 	if f.results != nil {
 		f.results.setResult(&Result{
 			ID:         f.id,
 			IsOriginal: f.isOriginal,
 			Code:       code,
 			Payload:    payload,
-			Err:        err,
 		})
 	}
 }

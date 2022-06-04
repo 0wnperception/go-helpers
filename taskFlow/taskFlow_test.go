@@ -56,9 +56,8 @@ func TestSimple(t *testing.T) {
 		r.Equal(Result{
 			ID:         id,
 			Code:       1,
-			Err:        serr,
 			IsOriginal: true,
-			Payload:    nil,
+			Payload:    serr,
 		}, *res)
 	})
 }
@@ -85,7 +84,6 @@ func TestSeq(t *testing.T) {
 		r.Equal(Result{
 			ID:         "pt1",
 			Code:       0,
-			Err:        nil,
 			IsOriginal: true,
 			Payload:    nil,
 		}, *res)
@@ -94,7 +92,6 @@ func TestSeq(t *testing.T) {
 		r.Equal(Result{
 			ID:         "pt2",
 			Code:       0,
-			Err:        nil,
 			IsOriginal: true,
 			Payload:    nil,
 		}, *res)
@@ -103,7 +100,6 @@ func TestSeq(t *testing.T) {
 		r.Equal(Result{
 			ID:         "pt3",
 			Code:       0,
-			Err:        nil,
 			IsOriginal: true,
 			Payload:    nil,
 		}, *res)
@@ -143,7 +139,7 @@ func TestParallel(t *testing.T) {
 		task1 := func(ctx context.Context) (err error) {
 			time.Sleep(time.Second)
 			v1++
-			sim1.FlowResult(FlowResultCode(3), v1, nil)
+			sim1.FlowResult(FlowResultCode(3), v1)
 			return nil
 		}
 		sim1.Task(task1).Next(New("sim1.2", 0).Task(task1)).Next(New("sim1.3", 0).Task(task1))
@@ -152,7 +148,7 @@ func TestParallel(t *testing.T) {
 		task2 := func(ctx context.Context) (err error) {
 			time.Sleep(time.Second + 20*time.Millisecond)
 			v2++
-			sim2.FlowResult(FlowResultCode(3), v2, nil)
+			sim2.FlowResult(FlowResultCode(3), v2)
 			return nil
 		}
 		sim2.Task(task2).Next(New("sim2.2", 0).Task(task2)).Next(New("sim2.3", 0).Task(task2))
@@ -161,7 +157,7 @@ func TestParallel(t *testing.T) {
 		task3 := func(ctx context.Context) (err error) {
 			time.Sleep(time.Second + 30*time.Millisecond)
 			v3++
-			sim3.FlowResult(FlowResultCode(3), v3, nil)
+			sim3.FlowResult(FlowResultCode(3), v3)
 			return nil
 		}
 		sim3.Task(task3).Next(New("sim3.2", 0)).Task(task3).Next(New("sim3.3", 0)).Task(task3)
@@ -174,7 +170,7 @@ func TestParallel(t *testing.T) {
 			func(ctx context.Context) (err error) {
 				time.Sleep(time.Second)
 				v++
-				flow.FlowResult(FlowResultCode(3), v, nil)
+				flow.FlowResult(FlowResultCode(3), v)
 				return nil
 			})
 
@@ -186,7 +182,6 @@ func TestParallel(t *testing.T) {
 		r.Equal(Result{
 			ID:         "sim1",
 			Code:       3,
-			Err:        nil,
 			IsOriginal: false,
 			Payload:    1,
 		}, *<-resChan.NotifyAll())
@@ -198,7 +193,6 @@ func TestParallel(t *testing.T) {
 		r.Equal(Result{
 			ID:         "sim2",
 			Code:       3,
-			Err:        nil,
 			IsOriginal: false,
 			Payload:    1,
 		}, *<-resChan.NotifyAll())
@@ -210,7 +204,6 @@ func TestParallel(t *testing.T) {
 		r.Equal(Result{
 			ID:         "sim3",
 			Code:       3,
-			Err:        nil,
 			IsOriginal: false,
 			Payload:    1,
 		}, *<-resChan.NotifyAll())
@@ -222,7 +215,6 @@ func TestParallel(t *testing.T) {
 		r.Equal(Result{
 			ID:         "sim1",
 			Code:       3,
-			Err:        nil,
 			IsOriginal: false,
 			Payload:    2,
 		}, *<-resChan.NotifyAll())
@@ -233,7 +225,6 @@ func TestParallel(t *testing.T) {
 		r.Equal(Result{
 			ID:         "sim2",
 			Code:       3,
-			Err:        nil,
 			IsOriginal: false,
 			Payload:    2,
 		}, *<-resChan.NotifyAll())
@@ -244,7 +235,6 @@ func TestParallel(t *testing.T) {
 		r.Equal(Result{
 			ID:         "sim3",
 			Code:       3,
-			Err:        nil,
 			IsOriginal: false,
 			Payload:    2,
 		}, *<-resChan.NotifyAll())
@@ -256,7 +246,6 @@ func TestParallel(t *testing.T) {
 		r.Equal(Result{
 			ID:         "sim1",
 			Code:       3,
-			Err:        nil,
 			IsOriginal: false,
 			Payload:    3,
 		}, *<-resChan.NotifyAll())
@@ -277,7 +266,6 @@ func TestParallel(t *testing.T) {
 		r.Equal(Result{
 			ID:         "sim3",
 			Code:       3,
-			Err:        nil,
 			IsOriginal: false,
 			Payload:    3,
 		}, *<-resChan.NotifyAll())
