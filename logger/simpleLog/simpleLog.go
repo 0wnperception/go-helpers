@@ -3,50 +3,52 @@ package simpleLog
 import (
 	"fmt"
 	"log"
+	"os"
 )
 
 type SimpleLog struct {
+	log *log.Logger
 }
 
 func NewSimpleLog() *SimpleLog {
-	return &SimpleLog{}
+	return &SimpleLog{log: log.New(os.Stdout, "", log.Ldate|log.Ltime)}
 }
 
 func (l *SimpleLog) Debug(v ...any) {
-	f := "debug: " + fmt.Sprintln(v...)
-	log.Println(f)
+	f := "debug: " + fmt.Sprint(v...)
+	l.log.Print(f)
 }
 func (l *SimpleLog) Debugf(format string, v ...any) {
-	f := "debug: " + format
-	log.Printf(f, v...)
+	f := "debug: " + fmt.Sprintf(format, v...)
+	l.log.Print(f)
 }
 func (l *SimpleLog) Info(v ...any) {
-	f := "info: " + fmt.Sprintln(v...)
-	log.Println(f)
+	f := "\ninfo: " + fmt.Sprintln(v...)
+	l.log.Println(f)
 }
 func (l *SimpleLog) Infof(format string, v ...any) {
-	f := "info: " + format
-	log.Printf(f, v...)
+	f := "\ninfo: " + fmt.Sprintf(format, v...) + "\n"
+	l.log.Println(f)
 }
 func (l *SimpleLog) Warn(v ...any) {
-	f := "warn: " + fmt.Sprintln(v...)
-	log.Println(f)
+	f := "\nwarn: " + fmt.Sprintln(v...)
+	l.log.Println(f)
 }
 func (l *SimpleLog) Warnf(format string, v ...any) {
-	f := "warn: " + format
-	log.Printf(f, v...)
+	f := "\nwarn: " + fmt.Sprintf(format, v...) + "\n"
+	l.log.Println(f)
 }
 func (l *SimpleLog) Error(v ...any) {
-	f := "error: " + fmt.Sprintln(v...)
-	log.Println(f)
+	f := "\nerror: " + fmt.Sprintln(v...)
+	l.log.Println(f)
 }
 func (l *SimpleLog) Errorf(format string, v ...any) {
-	f := "error: " + format
-	log.Printf(f, v...)
+	f := "\nerror: " + fmt.Sprintf(format, v...) + "\n"
+	l.log.Println(f)
 }
 func (l *SimpleLog) Fatal(v ...any) {
-	log.Fatal(v...)
+	l.log.Fatal(v...)
 }
 func (l *SimpleLog) Fatalf(format string, v ...any) {
-	log.Fatalf(format, v...)
+	l.log.Fatalf(format, v...)
 }
