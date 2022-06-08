@@ -4,6 +4,17 @@ import (
 	"sync"
 )
 
+type PointerCacheIface[T any, IDT comparable] interface {
+	Store(ID IDT, e *T)
+	StoreTable(emap map[IDT]*T)
+	Delete(ID IDT)
+	GetByID(ID IDT) *T
+	GetList() []*T
+	IsExist(ID IDT) bool
+	Len() int
+	Flush()
+}
+
 type pCache[T any, IDT comparable] struct {
 	sync.Locker
 	Map map[IDT]*T
@@ -43,6 +54,16 @@ func (c *pCache[T, IDT]) GetByID(ID IDT) *T {
 		return e
 	}
 	return nil
+}
+
+func (c *pCache[T, IDT]) GetList() (l []*T) {
+	l = make([]*T, len(c.Map))
+	idx := 0
+	for _, e := range c.Map {
+		l[idx] = e
+		idx++
+	}
+	return l
 }
 
 func (c *pCache[T, IDT]) IsExist(ID IDT) bool {
