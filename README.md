@@ -3,6 +3,9 @@
 `go run .`
 run program
 
+# MAC CROSS COMPLILING #
+GOOS=linux GOARCH=arm go build -o bin_name .
+
 ## BUILD ##
 `go build . -o 'name'`
 build program
