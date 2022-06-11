@@ -2,9 +2,26 @@ package priorityQueue
 
 import "sync"
 
-//this package implements generic priority queue
+// this package implements generic priority queue
 
-type PQueue[T comparable] struct {
+type PriorityQueueIface[T comparable] interface {
+	Push(priority int, v T) (ok bool)
+	Pull() (t T, ok bool)
+	Pop(v T) (old T, ok bool)
+	Len() int
+	Cap() int
+	List() []T
+	GetIterator() *pQueueIterator
+	Iterate(iter *pQueueIterator) (t T, ok bool)
+	PopByIterator(iter *pQueueIterator) (old T, ok bool)
+}
+
+type pQueueIterator struct {
+	prev int
+	idx  int
+}
+
+type pQueue[T comparable] struct {
 	sync.Locker
 	mem  []pQueueNode[T]
 	head int
@@ -20,8 +37,8 @@ type pQueueNode[T comparable] struct {
 	priority int
 }
 
-func NewPriorityQueue[T comparable](maxlen int, desc bool) *PQueue[T] {
-	q := &PQueue[T]{
+func NewPriorityQueue[T comparable](maxlen int, desc bool) PriorityQueueIface[T] {
+	q := &pQueue[T]{
 		mem:    make([]pQueueNode[T], maxlen),
 		Locker: &sync.RWMutex{},
 		len:    0,
@@ -35,7 +52,7 @@ func NewPriorityQueue[T comparable](maxlen int, desc bool) *PQueue[T] {
 	return q
 }
 
-func (q *PQueue[T]) Push(priority int, v T) (ok bool) {
+func (q *pQueue[T]) Push(priority int, v T) (ok bool) {
 	if q.cap > 0 {
 		q.Lock()
 		if q.len == 0 {
@@ -78,7 +95,7 @@ func (q *PQueue[T]) Push(priority int, v T) (ok bool) {
 	return
 }
 
-func (q *PQueue[T]) Pull() (t T, ok bool) {
+func (q *pQueue[T]) Pull() (t T, ok bool) {
 	if q.len > 0 {
 		q.Lock()
 		t = q.mem[q.head].val
@@ -91,7 +108,7 @@ func (q *PQueue[T]) Pull() (t T, ok bool) {
 	return
 }
 
-func (q *PQueue[T]) Pop(v T) (old T, ok bool) {
+func (q *pQueue[T]) Pop(v T) (old T, ok bool) {
 	if q.len > 0 {
 		q.Lock()
 		for idx, tmp, prev := 0, q.head, q.head; idx < q.len; idx, prev, tmp = idx+1, tmp, q.mem[tmp].next {
@@ -120,15 +137,64 @@ func (q *PQueue[T]) Pop(v T) (old T, ok bool) {
 	return
 }
 
-func (q *PQueue[T]) Len() int {
+func (q *pQueue[T]) Len() int {
 	return q.len
 }
 
-func (q *PQueue[T]) List() []T {
+func (q *pQueue[T]) Cap() int {
+	return q.cap
+}
+
+func (q *pQueue[T]) List() []T {
 	l := make([]T, q.len)
 	for tmp, idx := q.head, 0; idx < q.len; tmp = q.mem[tmp].next {
 		l[idx] = q.mem[tmp].val
 		idx++
 	}
 	return l
+}
+
+func (q *pQueue[T]) GetIterator() *pQueueIterator {
+	return &pQueueIterator{
+		idx:  q.head,
+		prev: q.head,
+	}
+}
+
+func (q *pQueue[T]) Iterate(iter *pQueueIterator) (t T, ok bool) {
+	if iter != nil {
+		if iter.idx >= 0 && iter.idx < q.Len() && iter.prev >= 0 && iter.prev < q.Len() {
+			ok = iter.prev != q.tail
+			if ok {
+				t = q.mem[iter.idx].val
+				iter.prev = iter.idx
+				iter.idx = q.mem[iter.idx].next
+			}
+		}
+	}
+	return
+}
+
+func (q *pQueue[T]) PopByIterator(iter *pQueueIterator) (old T, ok bool) {
+	if q.len > 0 {
+		q.Lock()
+		old = q.mem[iter.idx].val
+		switch iter.idx {
+		case q.head:
+			q.head = q.mem[q.head].next
+			break
+		case q.tail:
+			q.tail = iter.prev
+			break
+		default:
+			q.mem[iter.prev].next = q.mem[iter.idx].next
+			q.mem[iter.idx].next = q.mem[q.tail].next
+			q.mem[q.tail].next = iter.idx
+		}
+		q.len--
+		q.cap++
+		ok = true
+		q.Unlock()
+	}
+	return
 }

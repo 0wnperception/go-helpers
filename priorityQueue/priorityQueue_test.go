@@ -95,4 +95,61 @@ func TestPriorityQueue(t *testing.T) {
 		r.Equal(expected, actual)
 		t.Log("actual ", actual)
 	})
+
+	t.Run("priority queue check iterator", func(t *testing.T) {
+		t.Run("priority queue check good iterator", func(t *testing.T) {
+			q := NewPriorityQueue[int](10, false)
+			var expected []int
+			for i := 0; i < 10; i++ {
+				v := rand.Intn(200)
+				q.Push(v, v)
+				expected = append(expected, v)
+				r.Equal(i+1, q.Len())
+			}
+			sort.Ints(expected)
+			iter := q.GetIterator()
+			actual := []int{}
+			for v, ok := q.Iterate(iter); ok; {
+				actual = append(actual, v)
+				v, ok = q.Iterate(iter)
+			}
+			r.Equal(expected, actual)
+		})
+		t.Run("priority queue check iterator empty", func(t *testing.T) {
+			q := NewPriorityQueue[string](10, false)
+			iter := q.GetIterator()
+			_, ok := q.Iterate(iter)
+			r.False(ok)
+		})
+
+		t.Run("priority queue check nil iterator", func(t *testing.T) {
+			q := NewPriorityQueue[string](10, false)
+			_, ok := q.Iterate(nil)
+			r.False(ok)
+		})
+
+		t.Run("priority queue check pop by iterator", func(t *testing.T) {
+			q := NewPriorityQueue[int](10, false)
+			var expected []int
+			for i := 0; i < 10; i++ {
+				v := rand.Intn(200)
+				q.Push(v, v)
+				expected = append(expected, v)
+				r.Equal(i+1, q.Len())
+			}
+			sort.Ints(expected)
+
+			iter := q.GetIterator()
+			for i := 0; i < 5; i++ {
+				q.Iterate(iter)
+			}
+			t.Log("initial ", q.List())
+			t.Log("pop ", expected[5])
+			q.PopByIterator(iter)
+			actual := q.List()
+			expected = append(expected[:5], expected[6:]...)
+			r.Equal(expected, actual)
+			t.Log("actual ", actual)
+		})
+	})
 }
