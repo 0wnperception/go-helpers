@@ -8,6 +8,7 @@ type QueueAnyIface[T any] interface {
 	Head() (t T, ok bool)
 	Push(v T) (ok bool)
 	Pull() (val T, ok bool)
+	Copy() QueueAnyIface[T]
 	Len() int
 	Cap() int
 	List() []T

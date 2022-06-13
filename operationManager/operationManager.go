@@ -2,16 +2,17 @@ package operationManager
 
 import (
 	"context"
-	"go-helpers/concurrent"
-	"go-helpers/queue"
 	"sync"
+
+	"github.com/0wnperception/go-helpers/concurrent"
+	"github.com/0wnperception/go-helpers/queue"
 )
 
 type OperationManager[IDT comparable, TP any] struct {
 	locker          sync.Locker
 	operations      map[IDT]func(ctx context.Context, params TP) error
-	operationsQueue *queue.Queue[IDT]
-	tmpQueue        *queue.Queue[IDT]
+	operationsQueue queue.QueueIface[IDT]
+	tmpQueue        queue.QueueIface[IDT]
 	done            chan error
 	ready           chan error
 	err             chan error

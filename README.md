@@ -32,6 +32,7 @@ build program
 
 # MODULES #
 - `go mod init 'moule name'`
+- `go clean --modcache`
 init module
 - `go work use .`
 

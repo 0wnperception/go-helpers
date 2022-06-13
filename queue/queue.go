@@ -9,6 +9,7 @@ type QueueIface[T comparable] interface {
 	Push(v T) (ok bool)
 	Pull() (val T, ok bool)
 	Pop(v T) (old T, ok bool)
+	Copy() QueueIface[T]
 	Len() int
 	Cap() int
 	List() []T

@@ -2,8 +2,9 @@ package operationManager
 
 import (
 	"context"
-	"go-helpers/concurrent"
 	"testing"
+
+	"github.com/0wnperception/go-helpers/concurrent"
 
 	"github.com/stretchr/testify/require"
 )

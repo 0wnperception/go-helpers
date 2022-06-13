@@ -3,8 +3,9 @@ package commandManager
 import (
 	"context"
 	"encoding/json"
-	"go-helpers/mqttConnector"
 	"sync"
+
+	"github.com/0wnperception/go-helpers/mqttConnector"
 
 	"github.com/google/uuid"
 )

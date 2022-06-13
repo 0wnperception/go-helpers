@@ -1,19 +1,18 @@
 package repo
 
 import (
-	"context"
-	cache "go-helpers/pointerCache"
+	cache "github.com/0wnperception/go-helpers/pointerCache"
 
 	"github.com/pkg/errors"
 )
 
 type PersistentIface[T any, IDT comparable] interface {
-	Store(ctx context.Context, ID IDT, e *T) error
-	StoreTable(ctx context.Context, emap map[IDT]*T) error
-	Delete(ctx context.Context, ID IDT) error
-	GetList(ctx context.Context) ([]*T, error)
-	IsExist(ctx context.Context, ID IDT) bool
-	Flush(ctx context.Context)
+	Store(ID IDT, e *T) error
+	StoreTable(emap map[IDT]*T) error
+	Delete(ID IDT) error
+	GetList() ([]*T, error)
+	IsExist(ID IDT) bool
+	Flush()
 }
 
 type PointerCacheIface[T any, IDT comparable] interface {
@@ -39,9 +38,9 @@ func NewRepo[T any, IDT comparable](pers PersistentIface[T, IDT]) *Repo[T, IDT] 
 	}
 }
 
-func (repo *Repo[T, IDT]) Store(ctx context.Context, ID IDT, e *T) error {
+func (repo *Repo[T, IDT]) Store(ID IDT, e *T) error {
 	if repo.persistent != nil {
-		if err := repo.persistent.Store(ctx, ID, e); err != nil {
+		if err := repo.persistent.Store(ID, e); err != nil {
 			return errors.Wrap(err, "persistent error")
 		}
 	}
@@ -49,9 +48,9 @@ func (repo *Repo[T, IDT]) Store(ctx context.Context, ID IDT, e *T) error {
 	return nil
 }
 
-func (repo *Repo[T, IDT]) StoreTable(ctx context.Context, emap map[IDT]*T) error {
+func (repo *Repo[T, IDT]) StoreTable(emap map[IDT]*T) error {
 	if repo.persistent != nil {
-		if err := repo.persistent.StoreTable(ctx, emap); err != nil {
+		if err := repo.persistent.StoreTable(emap); err != nil {
 			return errors.Wrap(err, "persistent error")
 		}
 	}
@@ -59,35 +58,35 @@ func (repo *Repo[T, IDT]) StoreTable(ctx context.Context, emap map[IDT]*T) error
 	return nil
 }
 
-func (repo *Repo[T, IDT]) StoreCache(ctx context.Context, ID IDT, e *T) {
+func (repo *Repo[T, IDT]) StoreCache(ID IDT, e *T) {
 	repo.cache.Store(ID, e)
 }
 
-func (repo *Repo[T, IDT]) Delete(ctx context.Context, ID IDT) error {
+func (repo *Repo[T, IDT]) Delete(ID IDT) error {
 	if repo.persistent != nil {
-		if err := repo.persistent.Delete(ctx, ID); err != nil {
+		if err := repo.persistent.Delete(ID); err != nil {
 			return err
 		}
 	}
-	repo.DeleteCache(ctx, ID)
+	repo.DeleteCache(ID)
 	return nil
 }
 
-func (repo *Repo[T, IDT]) DeleteCache(ctx context.Context, ID IDT) {
+func (repo *Repo[T, IDT]) DeleteCache(ID IDT) {
 	repo.cache.Delete(ID)
 }
 
-func (repo *Repo[T, IDT]) GetByID(ctx context.Context, ID IDT) *T {
+func (repo *Repo[T, IDT]) GetByID(ID IDT) *T {
 	return repo.cache.GetByID(ID)
 }
 
-func (repo *Repo[T, IDT]) GetCache(ctx context.Context) ([]*T, error) {
+func (repo *Repo[T, IDT]) GetCache() ([]*T, error) {
 	return repo.cache.GetList(), nil
 }
 
-func (repo *Repo[T, IDT]) GetPersistent(ctx context.Context) ([]*T, error) {
+func (repo *Repo[T, IDT]) GetPersistent() ([]*T, error) {
 	if repo.persistent != nil {
-		if v, err := repo.persistent.GetList(ctx); err != nil {
+		if v, err := repo.persistent.GetList(); err != nil {
 			return v, errors.Wrap(err, "persistent error")
 		} else {
 			return v, nil
@@ -97,15 +96,15 @@ func (repo *Repo[T, IDT]) GetPersistent(ctx context.Context) ([]*T, error) {
 	}
 }
 
-func (repo *Repo[T, IDT]) GetCacheLen(ctx context.Context) int {
+func (repo *Repo[T, IDT]) GetCacheLen() int {
 	return repo.cache.Len()
 }
 
-func (repo *Repo[T, IDT]) IsExist(ctx context.Context, ID IDT) bool {
+func (repo *Repo[T, IDT]) IsExist(ID IDT) bool {
 	return repo.cache.IsExist(ID)
 }
 
-func (repo *Repo[T, IDT]) Flush(ctx context.Context) {
-	repo.persistent.Flush(ctx)
+func (repo *Repo[T, IDT]) Flush() {
+	repo.persistent.Flush()
 	repo.cache.Flush()
 }
