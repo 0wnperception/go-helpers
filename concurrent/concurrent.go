@@ -1,9 +1,12 @@
 package concurrent
 
 import (
-	"github.com/satori/go.uuid"
 	"context"
+	"log"
 	"sync/atomic"
+	"time"
+
+	uuid "github.com/satori/go.uuid"
 )
 
 type ConcurrentConfig struct {
@@ -26,13 +29,13 @@ func NewConcurrent(cfg ConcurrentConfig) *Concurrent {
 }
 
 func (c *Concurrent) Borrow(ctx context.Context) (ok bool) {
-	id:=uuid.NewV4()
-	log.Printf("borrow %s %v",id time.Now())
+	id := uuid.NewV4()
+	log.Printf("borrow %s %v", id, time.Now())
 	select {
 	case c.busy <- empty:
 		atomic.AddUint32(&c.counter, 1)
 		ok = true
-		log.Printf("got %s %v",id time.Now())
+		log.Printf("got %s %v", id, time.Now())
 		break
 	case <-ctx.Done():
 		break
