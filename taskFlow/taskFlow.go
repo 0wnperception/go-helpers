@@ -2,7 +2,6 @@ package taskFlow
 
 import (
 	"context"
-	"log"
 	"sync"
 )
 
@@ -70,7 +69,6 @@ func (r *Results) NotifyWith(code FlowResultCode, ID string) (chResult <-chan *R
 				chResult = ch
 			}
 		} else {
-			log.Println("register notification  ", code, " ", ID)
 			r.notifications[ID] = make(map[FlowResultCode]chan *Result)
 			ch := make(chan *Result, 1)
 			r.notifications[ID][code] = ch
@@ -86,18 +84,15 @@ func (r *Results) NotifyWith(code FlowResultCode, ID string) (chResult <-chan *R
 }
 
 func (r *Results) startNotifier() {
-	log.Println("start notifier")
 	for {
 		select {
 		case res := <-r.results:
-			log.Println("got notify ", res)
 			if res != nil {
 				if n, ok := r.notifications[res.ID]; ok {
 					if ch, ok := n[res.Code]; ok {
 						if len(ch) == cap(ch) {
 							<-ch
 						}
-						log.Println("notify chan", res)
 						ch <- res
 					}
 				}
