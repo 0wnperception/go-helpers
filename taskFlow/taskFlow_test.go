@@ -3,9 +3,10 @@ package taskFlow
 import (
 	"context"
 	"errors"
-	"go-helpers/logger/simpleLog"
 	"testing"
 	"time"
+
+	"github.com/0wnperception/go-helpers/logger/simpleLog"
 
 	"github.com/stretchr/testify/require"
 )

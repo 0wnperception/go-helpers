@@ -195,7 +195,7 @@ func (f *Flow) setOriginal(state bool) {
 
 func (f *Flow) run(cfg FlowRunConfig, done chan error) {
 	if cfg.Log != nil {
-		cfg.Log.Debugf("run flow '%s'", f.id)
+		cfg.Log.Infof("run flow '%s'", f.id)
 	}
 	if err := f.processTask(cfg); err != nil {
 		if cfg.Log != nil {
@@ -210,7 +210,7 @@ func (f *Flow) run(cfg FlowRunConfig, done chan error) {
 	} else {
 		f.processSubFlows(cfg)
 		if cfg.Log != nil {
-			cfg.Log.Debugf("finish flow '%s'", f.id)
+			cfg.Log.Infof("finish flow '%s'", f.id)
 		}
 		f.FlowResult(cfg.FlowResultCodeCompleted, nil)
 
