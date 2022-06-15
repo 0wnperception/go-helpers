@@ -69,7 +69,7 @@ func NewZapLogger(cfg ZapLoggerConfig) (*ZapLogger, error) {
 	}, nil
 }
 
-func (l *ZapLogger) Release() {
+func (l *ZapLogger) Utilize() {
 	l.core.Sync()
 	if l.file != nil {
 		l.file.Close()
