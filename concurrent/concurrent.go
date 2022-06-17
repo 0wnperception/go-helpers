@@ -2,7 +2,10 @@ package concurrent
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
+
+	"github.com/0wnperception/go-helpers/queue"
 )
 
 type ConcurrentConfig struct {
@@ -10,39 +13,52 @@ type ConcurrentConfig struct {
 }
 
 type Concurrent struct {
-	busy     chan struct{}
+	locker   sync.Locker
+	queue    queue.QueueIface[chan struct{}]
 	counter  uint32
+	users    uint32
 	capacity uint32
 }
 
-var empty struct{} = struct{}{}
-
-func NewConcurrent(cfg ConcurrentConfig) *Concurrent {
+func NewConcurrent(cfg ConcurrentConfig, maxCap int) *Concurrent {
 	return &Concurrent{
-		busy:     make(chan struct{}, cfg.SimCapacity),
+		locker:   &sync.RWMutex{},
+		queue:    queue.NewQueue[chan struct{}](maxCap),
 		capacity: cfg.SimCapacity,
 	}
 }
 
 func (c *Concurrent) Borrow(ctx context.Context) (ok bool) {
-	select {
-	case c.busy <- empty:
-		atomic.AddUint32(&c.counter, 1)
-		ok = true
-		break
-	case <-ctx.Done():
-		break
+	if c.IsAvailable() {
+		atomic.AddUint32(&c.users, 1)
+		return true
+	} else {
+		c.locker.Lock()
+		ch := make(chan struct{})
+		c.queue.Push(ch)
+		c.locker.Unlock()
+		select {
+		case <-ch:
+			return true
+		case <-ctx.Done():
+			c.queue.Pop(ch)
+		}
 	}
 	return
 }
 
 func (c *Concurrent) SettleUp() {
-	if c.counter > 0 {
-		atomic.AddUint32(&c.counter, ^uint32(0))
-		<-c.busy
+	if c.users > 0 {
+		c.locker.Lock()
+		if ch, ok := c.queue.Pull(); ok {
+			close(ch)
+		} else {
+			atomic.AddUint32(&c.users, ^uint32(0))
+		}
+		c.locker.Unlock()
 	}
 }
 
 func (c *Concurrent) IsAvailable() bool {
-	return c.counter < c.capacity
+	return c.users < c.capacity
 }
