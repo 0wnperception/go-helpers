@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0wnperception/go-helpers/logger/simpleLog"
+	"github.com/0wnperception/go-helpers/logger/simple_log"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestSimple(t *testing.T) {
 	r := require.New(t)
-	l := simpleLog.NewSimpleLog()
+	l := simple_log.NewSimpleLogger()
 	t.Run("completed", func(t *testing.T) {
 		v := 0
 		id := "pt1"
@@ -65,7 +65,7 @@ func TestSimple(t *testing.T) {
 
 func TestSeq(t *testing.T) {
 	r := require.New(t)
-	l := simpleLog.NewSimpleLog()
+	l := simple_log.NewSimpleLogger()
 	t.Run("completed", func(t *testing.T) {
 		v := 0
 		task := func(ctx context.Context) (err error) {
@@ -110,7 +110,7 @@ func TestSeq(t *testing.T) {
 
 func TestSeqDone(t *testing.T) {
 	r := require.New(t)
-	l := simpleLog.NewSimpleLog()
+	l := simple_log.NewSimpleLogger()
 	t.Run("completed", func(t *testing.T) {
 		v := 0
 		task := func(ctx context.Context) (err error) {
@@ -132,7 +132,7 @@ func TestSeqDone(t *testing.T) {
 
 func TestParallel(t *testing.T) {
 	r := require.New(t)
-	l := simpleLog.NewSimpleLog()
+	l := simple_log.NewSimpleLogger()
 	t.Run("completed", func(t *testing.T) {
 		v, v1, v2, v3 := 0, 0, 0, 0
 		flow := New("original", 3)
