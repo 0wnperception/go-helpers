@@ -12,7 +12,8 @@ type PriorityQueueIface[T comparable] interface {
 	Cap() int
 	List() []T
 	GetIterator() *pQueueIterator
-	Iterate(iter *pQueueIterator) (t T, ok bool)
+	GetByIterator(iter *pQueueIterator) (t T, ok bool)
+	Iterate(iter *pQueueIterator) (ok bool)
 	PopByIterator(iter *pQueueIterator) (old T, ok bool)
 }
 
@@ -157,18 +158,33 @@ func (q *pQueue[T]) List() []T {
 func (q *pQueue[T]) GetIterator() *pQueueIterator {
 	return &pQueueIterator{
 		idx:  q.head,
-		prev: q.head,
+		prev: -1,
 	}
 }
 
-func (q *pQueue[T]) Iterate(iter *pQueueIterator) (t T, ok bool) {
+func (q *pQueue[T]) GetByIterator(iter *pQueueIterator) (t T, ok bool) {
 	if iter != nil {
-		if iter.idx >= 0 && iter.idx < q.Len() && iter.prev >= 0 && iter.prev < q.Len() {
-			ok = iter.prev != q.tail
-			if ok {
-				t = q.mem[iter.idx].val
-				iter.prev = iter.idx
-				iter.idx = q.mem[iter.idx].next
+		if q.Len() > 0 {
+			if iter.idx >= 0 && iter.idx < q.Len() {
+				ok = iter.prev != q.tail
+				if ok {
+					t = q.mem[iter.idx].val
+				}
+			}
+		}
+	}
+	return
+}
+
+func (q *pQueue[T]) Iterate(iter *pQueueIterator) (ok bool) {
+	if iter != nil {
+		if q.Len() > 0 {
+			if iter.idx >= 0 && iter.idx < q.Len() {
+				ok = iter.prev != q.tail
+				if ok {
+					iter.prev = iter.idx
+					iter.idx = q.mem[iter.idx].next
+				}
 			}
 		}
 	}

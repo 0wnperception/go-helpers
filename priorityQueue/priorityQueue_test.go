@@ -97,7 +97,31 @@ func TestPriorityQueue(t *testing.T) {
 	})
 
 	t.Run("priority queue check iterator", func(t *testing.T) {
-		t.Run("priority queue check good iterator", func(t *testing.T) {
+		t.Run("priority queue check good iterator one", func(t *testing.T) {
+			q := NewPriorityQueue[int](1, false)
+			var expected []int
+			for i := 0; i < 1; i++ {
+				v := rand.Intn(200)
+				q.Push(v, v)
+				expected = append(expected, v)
+				r.Equal(i+1, q.Len())
+			}
+			sort.Ints(expected)
+			iter := q.GetIterator()
+			actual := []int{}
+			for i := 0; i < q.Len(); i++ {
+				v, ok := q.GetByIterator(iter)
+				if ok {
+					actual = append(actual, v)
+				} else {
+					break
+				}
+				q.Iterate(iter)
+			}
+			r.Equal(expected, actual)
+		})
+
+		t.Run("priority queue check good iterator with array", func(t *testing.T) {
 			q := NewPriorityQueue[int](10, false)
 			var expected []int
 			for i := 0; i < 10; i++ {
@@ -109,22 +133,28 @@ func TestPriorityQueue(t *testing.T) {
 			sort.Ints(expected)
 			iter := q.GetIterator()
 			actual := []int{}
-			for v, ok := q.Iterate(iter); ok; {
-				actual = append(actual, v)
-				v, ok = q.Iterate(iter)
+			for i := 0; i < q.Len(); i++ {
+				v, ok := q.GetByIterator(iter)
+				if ok {
+					actual = append(actual, v)
+				} else {
+					break
+				}
+				q.Iterate(iter)
 			}
 			r.Equal(expected, actual)
 		})
+
 		t.Run("priority queue check iterator empty", func(t *testing.T) {
 			q := NewPriorityQueue[string](10, false)
 			iter := q.GetIterator()
-			_, ok := q.Iterate(iter)
+			ok := q.Iterate(iter)
 			r.False(ok)
 		})
 
 		t.Run("priority queue check nil iterator", func(t *testing.T) {
 			q := NewPriorityQueue[string](10, false)
-			_, ok := q.Iterate(nil)
+			ok := q.Iterate(nil)
 			r.False(ok)
 		})
 
@@ -140,11 +170,16 @@ func TestPriorityQueue(t *testing.T) {
 			sort.Ints(expected)
 
 			iter := q.GetIterator()
-			for i := 0; i < 5; i++ {
+			for i := 0; i < q.Len(); i++ {
+				v, ok := q.GetByIterator(iter)
+				t.Log("iterate ", v, ok)
+				if ok && v == expected[5] {
+					break
+				}
 				q.Iterate(iter)
 			}
-			t.Log("initial ", q.List())
 			t.Log("pop ", expected[5])
+			t.Log("initial ", q.List())
 			q.PopByIterator(iter)
 			actual := q.List()
 			expected = append(expected[:5], expected[6:]...)
