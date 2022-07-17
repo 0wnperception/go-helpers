@@ -131,6 +131,11 @@ func TestPriorityQueue(t *testing.T) {
 				r.Equal(i+1, q.Len())
 			}
 			sort.Ints(expected)
+			_, ok := q.Pull()
+			r.True(ok)
+			_, ok = q.Pull()
+			r.True(ok)
+			expected = expected[2:]
 			iter := q.GetIterator()
 			actual := []int{}
 			for i := 0; i < q.Len(); i++ {

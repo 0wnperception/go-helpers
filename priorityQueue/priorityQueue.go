@@ -54,7 +54,7 @@ func NewPriorityQueue[T comparable](maxlen int, desc bool) PriorityQueueIface[T]
 }
 
 func (q *pQueue[T]) Push(priority int, v T) (ok bool) {
-	if q.cap > 0 {
+	if q.cap > q.len {
 		q.Lock()
 		if q.len == 0 {
 			q.mem[q.head].val = v
@@ -89,7 +89,6 @@ func (q *pQueue[T]) Push(priority int, v T) (ok bool) {
 			}
 		}
 		q.len++
-		q.cap--
 		ok = true
 		q.Unlock()
 	}
@@ -102,7 +101,6 @@ func (q *pQueue[T]) Pull() (t T, ok bool) {
 		t = q.mem[q.head].val
 		q.head = q.mem[q.head].next
 		q.len--
-		q.cap++
 		ok = true
 		q.Unlock()
 	}
@@ -128,7 +126,6 @@ func (q *pQueue[T]) Pop(v T) (old T, ok bool) {
 					q.mem[q.tail].next = tmp
 				}
 				q.len--
-				q.cap++
 				ok = true
 				break
 			}
@@ -165,11 +162,9 @@ func (q *pQueue[T]) GetIterator() *pQueueIterator {
 func (q *pQueue[T]) GetByIterator(iter *pQueueIterator) (t T, ok bool) {
 	if iter != nil {
 		if q.Len() > 0 {
-			if iter.idx >= 0 && iter.idx < q.Len() {
-				ok = iter.prev != q.tail
-				if ok {
-					t = q.mem[iter.idx].val
-				}
+			ok = iter.prev != q.tail
+			if ok {
+				t = q.mem[iter.idx].val
 			}
 		}
 	}
@@ -179,12 +174,10 @@ func (q *pQueue[T]) GetByIterator(iter *pQueueIterator) (t T, ok bool) {
 func (q *pQueue[T]) Iterate(iter *pQueueIterator) (ok bool) {
 	if iter != nil {
 		if q.Len() > 0 {
-			if iter.idx >= 0 && iter.idx < q.Len() {
-				ok = iter.prev != q.tail
-				if ok {
-					iter.prev = iter.idx
-					iter.idx = q.mem[iter.idx].next
-				}
+			ok = iter.prev != q.tail
+			if ok {
+				iter.prev = iter.idx
+				iter.idx = q.mem[iter.idx].next
 			}
 		}
 	}
@@ -208,7 +201,6 @@ func (q *pQueue[T]) PopByIterator(iter *pQueueIterator) (old T, ok bool) {
 			q.mem[q.tail].next = iter.idx
 		}
 		q.len--
-		q.cap++
 		ok = true
 		q.Unlock()
 	}
