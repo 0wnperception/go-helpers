@@ -71,7 +71,7 @@ func (q *queue[T]) Head() (t T, ok bool) {
 }
 
 func (q *queue[T]) Push(v T) (ok bool) {
-	if q.cap > 0 {
+	if q.cap > q.len {
 		q.Lock()
 		if q.len == 0 {
 			q.mem[q.head].val = v
@@ -81,7 +81,6 @@ func (q *queue[T]) Push(v T) (ok bool) {
 			q.mem[q.tail].val = v
 		}
 		q.len++
-		q.cap--
 		ok = true
 		q.Unlock()
 	}
@@ -95,7 +94,6 @@ func (q *queue[T]) Pull() (val T, ok bool) {
 		ok = true
 		q.head = q.mem[q.head].next
 		q.len--
-		q.cap++
 		q.Unlock()
 	}
 	return
@@ -120,7 +118,6 @@ func (q *queue[T]) Pop(v T) (old T, ok bool) {
 					q.mem[q.tail].next = tmp
 				}
 				q.len--
-				q.cap++
 				ok = true
 				break
 			}
@@ -157,11 +154,9 @@ func (q *queue[T]) GetIterator() *queueIterator {
 func (q *queue[T]) GetByIterator(iter *queueIterator) (t T, ok bool) {
 	if iter != nil {
 		if q.Len() > 0 {
-			if iter.idx >= 0 && iter.idx < q.Len() {
-				ok = iter.prev != q.tail
-				if ok {
-					t = q.mem[iter.idx].val
-				}
+			ok = iter.prev != q.tail
+			if ok {
+				t = q.mem[iter.idx].val
 			}
 		}
 	}
@@ -171,12 +166,10 @@ func (q *queue[T]) GetByIterator(iter *queueIterator) (t T, ok bool) {
 func (q *queue[T]) Iterate(iter *queueIterator) (ok bool) {
 	if iter != nil {
 		if q.Len() > 0 {
-			if iter.idx >= 0 && iter.idx < q.Len() {
-				ok = iter.prev != q.tail
-				if ok {
-					iter.prev = iter.idx
-					iter.idx = q.mem[iter.idx].next
-				}
+			ok = iter.prev != q.tail
+			if ok {
+				iter.prev = iter.idx
+				iter.idx = q.mem[iter.idx].next
 			}
 		}
 	}
@@ -184,7 +177,7 @@ func (q *queue[T]) Iterate(iter *queueIterator) (ok bool) {
 }
 
 func (q *queue[T]) PopByIterator(iter *queueIterator) (old T, ok bool) {
-	if q.len > 0 {
+	if q.Len() > 0 {
 		q.Lock()
 		old = q.mem[iter.idx].val
 		switch iter.idx {
@@ -200,7 +193,6 @@ func (q *queue[T]) PopByIterator(iter *queueIterator) (old T, ok bool) {
 			q.mem[q.tail].next = iter.idx
 		}
 		q.len--
-		q.cap++
 		ok = true
 		q.Unlock()
 	}

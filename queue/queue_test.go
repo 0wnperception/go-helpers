@@ -49,6 +49,7 @@ func TestQueue(t *testing.T) {
 
 	t.Run("queue check push", func(t *testing.T) {
 		q := NewQueue[string](10)
+		r.Equal(10, q.Cap())
 		var expected []string
 		for i := 0; i < 10; i++ {
 			v := rand.Intn(100)
@@ -75,6 +76,8 @@ func TestQueue(t *testing.T) {
 		actual := q.List()
 		r.Equal(expected[1:], actual)
 		t.Log("actual ", actual)
+		r.Equal(10, q.Cap())
+		r.Equal(9, q.Len())
 	})
 
 	t.Run("queue check pop", func(t *testing.T) {
@@ -128,6 +131,11 @@ func TestQueue(t *testing.T) {
 				q.Push(val)
 				expected = append(expected, val)
 			}
+			_, ok := q.Pull()
+			r.True(ok)
+			_, ok = q.Pull()
+			r.True(ok)
+			expected = expected[2:]
 			iter := q.GetIterator()
 			actual := []string{}
 			for i := 0; i < q.Len(); i++ {
