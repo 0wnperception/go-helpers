@@ -1,4 +1,4 @@
-package yamlSaver
+package yaml_saver
 
 import (
 	"io/ioutil"

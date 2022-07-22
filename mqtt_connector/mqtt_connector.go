@@ -1,4 +1,4 @@
-package mqttConnector
+package mqtt_connector
 
 import (
 	"sync"

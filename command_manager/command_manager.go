@@ -1,11 +1,11 @@
-package commandManager
+package command_manager
 
 import (
 	"context"
 	"encoding/json"
 	"sync"
 
-	"github.com/0wnperception/go-helpers/mqttConnector"
+	"github.com/0wnperception/go-helpers/mqtt_connector"
 
 	"github.com/google/uuid"
 )
@@ -46,10 +46,10 @@ type MqttCommandManager struct {
 	sync.Locker
 	cfg       *MqttAPIConfig
 	commands  map[string]*mqttCommand
-	connector *mqttConnector.MqttConnector
+	connector *mqtt_connector.MqttConnector
 }
 
-func NewMqttCommandManager(cfg *MqttAPIConfig, connector *mqttConnector.MqttConnector) *MqttCommandManager {
+func NewMqttCommandManager(cfg *MqttAPIConfig, connector *mqtt_connector.MqttConnector) *MqttCommandManager {
 	man := &MqttCommandManager{
 		Locker:    &sync.Mutex{},
 		commands:  make(map[string]*mqttCommand),

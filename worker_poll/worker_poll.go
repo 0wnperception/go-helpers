@@ -1,18 +1,19 @@
-package workerPoll
+package worker_poll
 
 import (
 	"context"
 	"errors"
-	"robot_agent/pkg/priorityQueue"
-	"robot_agent/pkg/queue"
 	"sync"
 	"time"
+
+	"github.com/0wnperception/go-helpers/priority_queue"
+	"github.com/0wnperception/go-helpers/queue"
 )
 
 type WorkerPool[T any, IDT comparable] struct {
 	sync.Locker
 	m map[IDT]*workerNode[T]
-	q *priorityQueue.PQueue[IDT]
+	q *priority_queue.PQueue[IDT]
 }
 
 type workerNode[T any] struct {
@@ -25,7 +26,7 @@ func NewWorkerPool[T any, IDT comparable](desc bool) *WorkerPool[T, IDT] {
 	return &WorkerPool[T, IDT]{
 		Locker: &sync.RWMutex{},
 		m:      make(map[IDT]*workerNode[T]),
-		q:      priorityQueue.NewPriorityQueue[IDT](10, desc),
+		q:      priority_queue.NewPriorityQueue[IDT](10, desc),
 	}
 }
 
