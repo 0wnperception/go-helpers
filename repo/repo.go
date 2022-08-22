@@ -1,7 +1,7 @@
 package repo
 
 import (
-	cache "github.com/0wnperception/go-helpers/pointerCache"
+	cache "github.com/0wnperception/go-helpers/pointer_cache"
 
 	"github.com/pkg/errors"
 )
