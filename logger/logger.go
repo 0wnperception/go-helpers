@@ -17,4 +17,5 @@ type Logger interface {
 	Errorf(format string, v ...any)
 	Fatal(v ...any)
 	Fatalf(format string, v ...any)
+	Utilize()
 }
