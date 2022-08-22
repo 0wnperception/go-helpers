@@ -2,7 +2,9 @@ package event_journal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -10,15 +12,51 @@ import (
 	"github.com/google/uuid"
 )
 
+const WAITER_BUCKET_SIZE = 100
+
+type EventJournalIface interface {
+	PutEvent(label string, payload interface{}) error
+	GetEventByNumber(eventNumber uint64) (e *Event, err error)
+	GetNext(e *Event) (*Event, error)
+	FindByLabel(startEventNumber uint64, label string) (*Event, error)
+	NewWaiter(label string) (w *Waiter)
+}
+
 type EventJournal struct {
-	sync.Locker
 	ID             string
+	putLocker      sync.Locker
+	waitersLocker  sync.Locker
 	BasketsIDsList []string
 	InMemoryBasket EventBasket
 	Persistent     EventJournalPersistent
 	BasketsCounter uint64
 	EventsCounter  uint64
-	EventsUpdated  map[string]chan struct{}
+	Waiters        map[string]*Waiter
+}
+
+type Waiter struct {
+	id     string
+	ch     chan *Event
+	labels []string
+}
+
+func (w *Waiter) Surve(ctx context.Context) *Event {
+	for {
+		select {
+		case e := <-w.ch:
+			if e != nil {
+				for _, label := range w.labels {
+					if e.IsEvent(label) {
+						return e
+					}
+				}
+			} else {
+				return nil
+			}
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 type EventBasket struct {
@@ -29,29 +67,55 @@ type EventBasket struct {
 	Size              int
 }
 
-type EventCounter struct {
-	Counter uint64
+type Event struct {
+	ID          string    `json:"id"`
+	Time        time.Time `json:"time"`
+	EventNumber uint64    `json:"event_number"`
+	Label       string    `json:"label"`
+	Payload     []byte    `json:"payload"`
 }
 
-type Event struct {
-	ID          string
-	Time        time.Time
-	EventNumber uint64
-	Label       string
-	Payload     []byte
+func (e *Event) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		ID          string `json:"id"`
+		Time        string `json:"time"`
+		EventNumber uint64 `json:"event_number"`
+		Label       string `json:"label"`
+		Payload     string `json:"payload"`
+	}{
+		ID:          e.ID,
+		Time:        e.Time.String(),
+		EventNumber: e.EventNumber,
+		Label:       e.Label,
+		Payload:     string(e.Payload),
+	})
+}
+
+func (e *Event) GetEventNumber() uint64 {
+	return e.EventNumber
+}
+
+func (e *Event) UnmarshalPayload(target interface{}) error {
+	return json.Unmarshal(e.Payload, target)
+}
+
+//IsEvent tests whether the event label responds provided label.
+func (e *Event) IsEvent(label string) bool {
+	return strings.HasPrefix(e.Label, label)
 }
 
 type EventJournalPersistent interface {
 	Store(*EventJournal) error
 	Restore() (*EventJournal, error)
-	GetEventByCounter(counter uint64) (*Event, error)
+	GetEventByNumber(counter uint64) (*Event, error)
 }
 
 func NewEventJournal(basketSize int, persistent EventJournalPersistent) (j *EventJournal) {
 	j = &EventJournal{
-		Locker:        &sync.RWMutex{},
 		ID:            uuid.New().String(),
-		EventsUpdated: make(map[string]chan struct{}),
+		putLocker:     &sync.RWMutex{},
+		waitersLocker: &sync.RWMutex{},
+		Waiters:       make(map[string]*Waiter),
 	}
 	j.initBasket(basketSize)
 	return
@@ -89,9 +153,16 @@ func (j *EventJournal) flushBasket() error {
 	return nil
 }
 
-//puts event to storage
-func (j *EventJournal) PutEvent(label string, payload []byte) {
-	j.Lock()
+//put event to storage
+func (j *EventJournal) PutEvent(label string, payload interface{}) (err error) {
+	var bin []byte
+	if payload != nil {
+		bin, err = json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+	}
+	j.putLocker.Lock()
 	//check in memory size if it's full, flushes basket to persistent and inits new basket with the same size
 	if len(j.InMemoryBasket.Events) == int(j.EventsCounter-j.InMemoryBasket.StartEventCounter) {
 		if err := j.flushBasket(); err != nil {
@@ -106,7 +177,7 @@ func (j *EventJournal) PutEvent(label string, payload []byte) {
 		Time:        time.Now(),
 		EventNumber: j.EventsCounter,
 		Label:       label,
-		Payload:     payload,
+		Payload:     bin,
 	}
 	//save event in memory and in persistent if it exists
 	j.InMemoryBasket.Events[j.EventsCounter-j.InMemoryBasket.StartEventCounter-1] = e
@@ -116,95 +187,82 @@ func (j *EventJournal) PutEvent(label string, payload []byte) {
 		}
 	}
 
-	//close updaters
-	for id, updated := range j.EventsUpdated {
-		close(updated)
-		delete(j.EventsUpdated, id)
+	//notify waiters
+	j.waitersLocker.Lock()
+	for _, waiter := range j.Waiters {
+		j.notifyWaiter(e, waiter)
 	}
-	j.Unlock()
+	j.waitersLocker.Unlock()
+	j.putLocker.Unlock()
+	return nil
 }
 
-//return new last event counter
-func (j *EventJournal) GetEventCounter() EventCounter {
-	return EventCounter{
-		Counter: j.EventsCounter,
+func (j *EventJournal) NewWaiter(labels ...string) (w *Waiter) {
+	w = &Waiter{
+		id:     uuid.New().String(),
+		ch:     make(chan *Event, WAITER_BUCKET_SIZE),
+		labels: labels,
+	}
+	j.waitersLocker.Lock()
+	j.Waiters[w.id] = w
+	j.waitersLocker.Unlock()
+	return
+}
+
+func (j *EventJournal) notifyWaiter(e Event, waiter *Waiter) {
+	if cap(waiter.ch) == len(waiter.ch) {
+		close(waiter.ch)
+		delete(j.Waiters, waiter.id)
+	} else {
+		waiter.ch <- &e
 	}
 }
 
-//return event with event number provided with counter if it's exist or error
-func (j *EventJournal) GetEventByCounter(counter EventCounter) (e *Event, err error) {
-	if j.EventsCounter == 0 || counter.Counter > j.EventsCounter {
-		return nil, errors.New("no events provided")
+//GetEventByNumber returns event with provided eventNumber if it's exist or error.
+func (j *EventJournal) GetEventByNumber(eventNumber uint64) (e *Event, err error) {
+	if j.EventsCounter == 0 || eventNumber > j.EventsCounter {
+		return nil, errors.New(fmt.Sprintf("invalid number %d", eventNumber))
 	}
-	if counter.Counter > j.InMemoryBasket.StartEventCounter && counter.Counter <= j.InMemoryBasket.StartEventCounter+uint64(j.InMemoryBasket.Size) {
-		tmp := j.InMemoryBasket.Events[counter.Counter-j.InMemoryBasket.StartEventCounter-1]
+	if eventNumber > j.InMemoryBasket.StartEventCounter && eventNumber <= j.InMemoryBasket.StartEventCounter+uint64(j.InMemoryBasket.Size) {
+		tmp := j.InMemoryBasket.Events[eventNumber-j.InMemoryBasket.StartEventCounter-1]
 		return &tmp, nil
 	} else {
 		if j.Persistent != nil {
-			return j.Persistent.GetEventByCounter(counter.Counter)
+			return j.Persistent.GetEventByNumber(eventNumber)
 		} else {
 			return nil, errors.New("no counter in memory, invalid persistent")
 		}
 	}
 }
 
-//return next counter if it exists or error and provided counter
-func (j *EventJournal) GetNextCounter(counter EventCounter) (EventCounter, error) {
-	if counter.Counter < j.EventsCounter {
-		counter.Counter++
-		return counter, nil
-	} else {
-		return counter, errors.New("no events provided")
-	}
+//GetNext returns next event if it exists or error.
+func (j *EventJournal) GetNext(e *Event) (*Event, error) {
+	return j.GetEventByNumber(e.EventNumber + 1)
 }
 
-//return existing event after counter with label, if no new events provided waits for it
-func (j *EventJournal) WaitEvent(counter EventCounter, label string, ctx context.Context) (EventCounter, error) {
-	id := uuid.New().String()
-	for {
-		//check previous events
-		if newCounter, ok := j.searchingForLabel(counter, label); ok {
-			return newCounter, nil
+//FindByLabel tests whether existing events respond provided label.
+func (j *EventJournal) FindByLabel(startEventNumber uint64, label string) (*Event, error) {
+	var (
+		tmp *Event
+		err error
+	)
+	for i := startEventNumber; i < j.EventsCounter; i++ {
+		if i > j.InMemoryBasket.StartEventCounter && i <= j.InMemoryBasket.StartEventCounter+uint64(j.InMemoryBasket.Size) {
+			e := j.InMemoryBasket.Events[i-j.InMemoryBasket.StartEventCounter-1]
+			tmp = &e
 		} else {
-			counter = newCounter
-		}
-		//put waiting channel on event put
-		ch := make(chan struct{})
-		j.Lock()
-		j.EventsUpdated[id] = ch
-		j.Unlock()
-		select {
-		case <-ch:
-		case <-ctx.Done():
-			j.Lock()
-			delete(j.EventsUpdated, id)
-			j.Unlock()
-			return counter, ctx.Err()
-		}
-	}
-}
-
-//goes through existing events started from counter to find label, if it is found return newCounter and ok=true
-func (j *EventJournal) searchingForLabel(counter EventCounter, label string) (newCounter EventCounter, ok bool) {
-	newCounter = counter
-	var err error
-	for {
-		if newCounter, err = j.GetNextCounter(newCounter); err == nil {
-			if j.checkEventLabel(newCounter, label) {
-				ok = true
-				return
+			if j.Persistent != nil {
+				tmp, err = j.Persistent.GetEventByNumber(i)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				return nil, errors.New("no counter in memory, invalid persistent")
 			}
-		} else {
-			return
+		}
+		if tmp.IsEvent(label) {
+			return tmp, nil
 		}
 	}
-}
-
-//checks event label for prefix by existing event number, it panics if it is not exist
-func (j *EventJournal) checkEventLabel(counter EventCounter, label string) bool {
-	if e, err := j.GetEventByCounter(counter); err != nil {
-		panic("wrong job with event updated chan:" + err.Error())
-	} else {
-		return strings.HasPrefix(e.Label, label)
-	}
+	return nil, errors.New("no events responding such label")
 }
