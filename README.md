@@ -66,7 +66,7 @@ https://golang-blog.blogspot.com/2019/07/testing-flags.html
 
 ## FLAGS ##
 - `-run 'test name'`
-set spetial test name 
+set special test name 
 - `-v`
 visual stdout
 - `-bench=.`
