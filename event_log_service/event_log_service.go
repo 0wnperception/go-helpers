@@ -69,16 +69,18 @@ func (s *EventLogService) run(ctx context.Context) {
 			}
 		}
 	}
-	var err error
-	for {
-		e, err = s.journal.GetNext(e)
-		if err != nil {
-			break
-		} else {
-			s.runWriter(e)
+	if e != nil {
+		var err error
+		for {
+			e, err = s.journal.GetNext(e)
+			if err != nil {
+				break
+			} else {
+				s.runWriter(e)
+			}
 		}
+		<-s.writerDone
 	}
-	<-s.writerDone
 	s.flushLoggers()
 	close(s.done)
 }
