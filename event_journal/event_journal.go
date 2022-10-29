@@ -19,7 +19,7 @@ type EventJournalIface interface {
 	GetEventByNumber(eventNumber uint64) (e *Event, err error)
 	GetNext(e *Event) (*Event, error)
 	FindByLabel(startEventNumber uint64, label string) (*Event, error)
-	NewWaiter(label string) (w *Waiter)
+	NewWaiter(label ...string) (w *Waiter)
 }
 
 type EventJournal struct {

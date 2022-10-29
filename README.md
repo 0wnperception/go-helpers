@@ -103,3 +103,19 @@ visual stdout
 - web
 - list (func name)
 - sample_index = 
+
+
+# Shuduler #
+https://habr.com/ru/post/478168/
+https://habr.com/ru/post/489862/
+- GOMAXPROC set virtual processors to use
+
+## TAGS ##
+- //go:nosplit set to not interrupt runtime of gorutine
+
+# GC #
+https://www.youtube.com/watch?v=CX4GSErFenI
+- GOGC - percentage of memory to start garbage collector
+
+# chan #
+https://habr.com/ru/post/308070/
