@@ -32,7 +32,8 @@ func Run(appName string, opts ...Option) {
 }
 
 func startServices(cfg *Config) {
-	for _, f := range cfg.services {
+	for i := range cfg.services {
+		f := cfg.services[i]
 		if f != nil {
 			cfg.wg.Add(1)
 

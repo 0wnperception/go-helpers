@@ -14,6 +14,10 @@ func String(key, val string) Field {
 	return Field{field: zap.String(key, val)}
 }
 
+func Int(key string, val int) Field {
+	return Field{field: zap.Int(key, val)}
+}
+
 func Reflect(key string, val interface{}) Field {
 	return Field{field: zap.Reflect(key, val)}
 }
