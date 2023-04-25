@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func NewLogUnaryInterceptorOpt(logCtx context.Context) grpc.ServerOption {
+func WithLogUnaryInterceptor(logCtx context.Context) grpc.ServerOption {
 	return grpc.UnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		var consumer string
 
@@ -42,7 +42,7 @@ func NewLogUnaryInterceptorOpt(logCtx context.Context) grpc.ServerOption {
 	})
 }
 
-func NewLogStreamInterceptorOpt(logCtx context.Context) grpc.ServerOption {
+func WithLogStreamInterceptor(logCtx context.Context) grpc.ServerOption {
 	return grpc.StreamInterceptor(func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		streamCtx := ss.Context()
 
@@ -75,10 +75,10 @@ func NewLogStreamInterceptorOpt(logCtx context.Context) grpc.ServerOption {
 	})
 }
 
-func NewLogInterceptorOpts(logCtx context.Context) []grpc.ServerOption {
+func WithLogInterceptors(logCtx context.Context) []grpc.ServerOption {
 	return []grpc.ServerOption{
-		NewLogUnaryInterceptorOpt(logCtx),
-		NewLogStreamInterceptorOpt(logCtx),
+		WithLogUnaryInterceptor(logCtx),
+		WithLogStreamInterceptor(logCtx),
 	}
 }
 
