@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/0wnperception/go-helpers/concurrent"
+	"github.com/0wnperception/go-helpers/pkg/concurrent"
 
 	"github.com/stretchr/testify/require"
 )

@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/0wnperception/go-helpers/concurrent"
-	"github.com/0wnperception/go-helpers/queue"
+	"github.com/0wnperception/go-helpers/pkg/concurrent"
+	"github.com/0wnperception/go-helpers/pkg/queue"
 )
 
 type OperationManager[IDT comparable, TP any] struct {

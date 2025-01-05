@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0wnperception/go-helpers/logger/simple_log"
+	"github.com/0wnperception/go-helpers/pkg/logger/simple_log"
 
 	"github.com/stretchr/testify/require"
 )

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0wnperception/go-helpers/priority_queue"
-	"github.com/0wnperception/go-helpers/queue"
+	"github.com/0wnperception/go-helpers/pkg/priority_queue"
+	"github.com/0wnperception/go-helpers/pkg/queue"
 )
 
 type WorkerPool[T any, IDT comparable] struct {

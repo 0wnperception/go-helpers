@@ -3,7 +3,7 @@ package runner
 import (
 	"context"
 
-	"github.com/0wnperception/go-helpers/log"
+	"github.com/0wnperception/go-helpers/pkg/log"
 )
 
 func Run(appName string, opts ...Option) {
