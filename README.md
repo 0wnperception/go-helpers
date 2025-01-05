@@ -1,4 +1,19 @@
 # PROGRAMS #
+
+## INSTALL ##
+go install golang.org/x/tools/gopls@latest \
+           github.com/go-delve/delve/cmd/dlv@latest \
+           github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest \
+           github.com/ramya-rao-a/go-outline@latest \
+           github.com/cweill/gotests/...@latest \
+           github.com/fatih/gomodifytags@latest \
+           github.com/josharian/impl@latest \
+           golang.org/x/tools/cmd/guru@latest \
+           golang.org/x/tools/cmd/gorename@latest \
+           github.com/go-delve/delve/cmd/dlv@latest \
+           github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+
 ## RUN ##
 `go run .`
 run program
