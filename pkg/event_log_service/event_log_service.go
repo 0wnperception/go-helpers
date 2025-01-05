@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/0wnperception/go-helpers/queue"
+	"github.com/0wnperception/go-helpers/pkg/queue"
 
-	"github.com/0wnperception/go-helpers/event_journal"
+	"github.com/0wnperception/go-helpers/pkg/event_journal"
 )
 
 type EventLogServiceConfig struct {

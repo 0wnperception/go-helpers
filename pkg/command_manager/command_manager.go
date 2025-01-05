@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/0wnperception/go-helpers/mqtt_connector"
+	"github.com/0wnperception/go-helpers/pkg/mqtt_connector"
 
 	"github.com/google/uuid"
 )

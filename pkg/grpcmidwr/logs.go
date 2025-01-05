@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/0wnperception/go-helpers/log"
+	"github.com/0wnperception/go-helpers/pkg/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"

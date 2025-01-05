@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/0wnperception/go-helpers/queue"
+	"github.com/0wnperception/go-helpers/pkg/queue"
 )
 
 type ConcurrentConfig struct {
