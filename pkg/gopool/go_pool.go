@@ -20,13 +20,13 @@ var (
 )
 
 type GoPool struct {
-	wg         *sync.WaitGroup
-	errSync    *sync.Mutex
-	err        error
-	pool       *ants.Pool
-	cancel     func()
-	cancelOnce *sync.Once
-	finished   atomic.Bool
+	wg                *sync.WaitGroup
+	errSync           *sync.Mutex
+	err               error
+	pool              *ants.Pool
+	cancel            func()
+	cancelOnce        *sync.Once
+	started, finished atomic.Bool
 }
 
 func New() (*GoPool, error) {
@@ -44,16 +44,17 @@ func New() (*GoPool, error) {
 }
 
 func (p *GoPool) Run(ctx context.Context, f func(ctx context.Context) error) error {
-	if p.cancel != nil {
-		return ErrAlreadyStarted
-	}
-
 	if p.finished.Load() {
 		return ErrAlreadyFinished
 	}
 
-	ctx, p.cancel = context.WithCancel(ctx)
+	if p.started.Load() {
+		return ErrAlreadyStarted
+	}
 
+	p.started.Store(true)
+
+	ctx, p.cancel = context.WithCancel(ctx)
 	p.wg.Add(1)
 
 	if err := p.pool.Submit(func() {
@@ -78,7 +79,7 @@ func (p *GoPool) Run(ctx context.Context, f func(ctx context.Context) error) err
 }
 
 func (p *GoPool) Cancel() {
-	if p.cancel != nil {
+	if p.started.Load() {
 		p.cancelOnce.Do(func() {
 			p.cancel()
 			p.cancel = nil
@@ -87,18 +88,22 @@ func (p *GoPool) Cancel() {
 }
 
 func (p *GoPool) WaitFinish() error {
-	if p.cancel == nil {
-		return ErrNotStarted
-	}
-
 	if p.finished.Load() {
 		return ErrAlreadyFinished
 	}
 
+	if !p.started.Load() {
+		return ErrNotStarted
+	}
+
 	p.wg.Wait()
-	p.Cancel()
 	p.pool.Release()
 	p.finished.Store(true)
+
+	if p.cancel != nil {
+		p.cancel()
+		p.cancel = nil
+	}
 
 	return p.err
 }
