@@ -9,6 +9,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/josharian/intern v1.0.0
+	github.com/panjf2000/ants v1.3.0
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	go.opentelemetry.io/otel v1.33.0
