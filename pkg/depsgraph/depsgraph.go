@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 
 	"github.com/0wnperception/go-helpers/pkg/log"
 )
@@ -17,13 +16,12 @@ var (
 )
 
 // Node - узел графа зависимостей
-// T - тип данных, который представляет этот узел
-type Node[T any] interface {
+type Node interface {
 	// DataType возвращает тип данных узла
-	DataType() reflect.Type
+	DataType() any
 
 	// Dependencies возвращает список типов зависимостей
-	Dependencies() []reflect.Type
+	Dependencies() []any
 
 	// Execute выполняет операцию узла
 	Execute(ctx context.Context) error
@@ -31,20 +29,18 @@ type Node[T any] interface {
 
 // Graph - граф зависимостей с топологической сортировкой
 type Graph struct {
-	nodes map[reflect.Type]Node[any]
+	nodes map[any]Node
 }
 
 func NewGraph() *Graph {
 	return &Graph{
-		nodes: make(map[reflect.Type]Node[any]),
+		nodes: make(map[any]Node),
 	}
 }
 
 // AddNode добавляет узел в граф
-func AddNode[T any](g *Graph, node Node[T]) {
-	var zero T
-	typ := reflect.TypeOf(zero)
-	g.nodes[typ] = node
+func (g *Graph) AddNode(node Node) {
+	g.nodes[node.DataType()] = node
 }
 
 // ExecuteAll выполняет операции всех узлов в правильном порядке
@@ -60,12 +56,13 @@ func (g *Graph) ExecuteAll(ctx context.Context) error {
 	)
 
 	// Выполняем операции в порядке зависимостей
-	for _, typ := range order {
-		node := g.nodes[typ]
-		log.Info(ctx, fmt.Sprintf("Executing %s", typ.String()))
+	for _, typeKey := range order {
+		node := g.nodes[typeKey]
+		typeStr := fmt.Sprintf("%v", typeKey)
+		log.Info(ctx, fmt.Sprintf("Executing %s", typeStr))
 
 		if err := node.Execute(ctx); err != nil {
-			return fmt.Errorf("%w %s: %w", ErrFailedToExecuteNode, typ.String(), err)
+			return fmt.Errorf("%w %s: %w", ErrFailedToExecuteNode, typeStr, err)
 		}
 	}
 
@@ -73,11 +70,11 @@ func (g *Graph) ExecuteAll(ctx context.Context) error {
 }
 
 // topologicalSort выполняет топологическую сортировку (Kahn's algorithm)
-func (g *Graph) topologicalSort() ([]reflect.Type, error) {
+func (g *Graph) topologicalSort() ([]any, error) {
 	// Вычисляем in-degree для каждого узла
-	inDegree := make(map[reflect.Type]int)
-	for typ := range g.nodes {
-		inDegree[typ] = 0
+	inDegree := make(map[any]int)
+	for typeKey := range g.nodes {
+		inDegree[typeKey] = 0
 	}
 
 	for _, node := range g.nodes {
@@ -87,14 +84,14 @@ func (g *Graph) topologicalSort() ([]reflect.Type, error) {
 	}
 
 	// Находим узлы без зависимостей
-	queue := make([]reflect.Type, 0)
-	for typ, degree := range inDegree {
+	queue := make([]any, 0)
+	for typeKey, degree := range inDegree {
 		if degree == 0 {
-			queue = append(queue, typ)
+			queue = append(queue, typeKey)
 		}
 	}
 
-	result := make([]reflect.Type, 0, len(g.nodes))
+	result := make([]any, 0, len(g.nodes))
 
 	// Обрабатываем узлы
 	for len(queue) > 0 {
@@ -106,9 +103,10 @@ func (g *Graph) topologicalSort() ([]reflect.Type, error) {
 		for _, node := range g.nodes {
 			for _, dep := range node.Dependencies() {
 				if dep == current {
-					inDegree[node.DataType()]--
-					if inDegree[node.DataType()] == 0 {
-						queue = append(queue, node.DataType())
+					typeKey := node.DataType()
+					inDegree[typeKey]--
+					if inDegree[typeKey] == 0 {
+						queue = append(queue, typeKey)
 					}
 				}
 			}

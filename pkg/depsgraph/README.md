@@ -4,9 +4,9 @@
 
 ## Основные компоненты
 
-- `Node[T]` - интерфейс узла с зависимостями
+- `Node` - интерфейс узла с зависимостями
 - `Graph` - граф узлов с топологической сортировкой
-- `AddNode[T]` - добавление узла в граф
+- `AddNode` - добавление узла в граф
 - `ExecuteAll` - выполнение операций всех узлов в правильном порядке
 
 ## Пример использования
@@ -16,25 +16,26 @@ package main
 
 import (
     "context"
-    "reflect"
     
     "github.com/0wnperception/go-helpers/pkg/depsgraph"
 )
 
-// Определяем типы данных для узлов
-type DataA struct{}
-type DataB struct{}
-type DataC struct{}
-type DataD struct{}
+// Определяем ключи для узлов
+const (
+    KeyDataA = "DataA"
+    KeyDataB = "DataB"
+    KeyDataC = "DataC"
+    KeyDataD = "DataD"
+)
 
 // Реализуем узел без зависимостей
 type NodeA struct{}
 
-func (n *NodeA) DataType() reflect.Type {
-    return reflect.TypeOf((*DataA)(nil)).Elem()
+func (n *NodeA) DataType() any {
+    return KeyDataA
 }
 
-func (n *NodeA) Dependencies() []reflect.Type {
+func (n *NodeA) Dependencies() []any {
     return nil // нет зависимостей
 }
 
@@ -46,17 +47,17 @@ func (n *NodeA) Execute(ctx context.Context) error {
 // Реализуем узел с одной зависимостью
 type NodeB struct{}
 
-func (n *NodeB) DataType() reflect.Type {
-    return reflect.TypeOf((*DataB)(nil)).Elem()
+func (n *NodeB) DataType() any {
+    return KeyDataB
 }
 
-func (n *NodeB) Dependencies() []reflect.Type {
-    return []reflect.Type{
-        reflect.TypeOf((*DataA)(nil)).Elem(), // зависит от DataA
+func (n *NodeB) Dependencies() []any {
+    return []any{
+        KeyDataA, // зависит от DataA
     }
 }
 
-func (n *NodeB) Sync(ctx context.Context) error {
+func (n *NodeB) Execute(ctx context.Context) error {
     // выполнение операций для узла B
     return nil
 }
@@ -64,18 +65,18 @@ func (n *NodeB) Sync(ctx context.Context) error {
 // Реализуем узел с несколькими зависимостями
 type NodeC struct{}
 
-func (n *NodeC) DataType() reflect.Type {
-    return reflect.TypeOf((*DataC)(nil)).Elem()
+func (n *NodeC) DataType() any {
+    return KeyDataC
 }
 
-func (n *NodeC) Dependencies() []reflect.Type {
-    return []reflect.Type{
-        reflect.TypeOf((*DataA)(nil)).Elem(), // зависит от DataA
-        reflect.TypeOf((*DataB)(nil)).Elem(), // зависит от DataB
+func (n *NodeC) Dependencies() []any {
+    return []any{
+        KeyDataA, // зависит от DataA
+        KeyDataB, // зависит от DataB
     }
 }
 
-func (n *NodeC) Sync(ctx context.Context) error {
+func (n *NodeC) Execute(ctx context.Context) error {
     // выполнение операций для узла C
     return nil
 }
@@ -83,17 +84,17 @@ func (n *NodeC) Sync(ctx context.Context) error {
 // Реализуем независимый узел
 type NodeD struct{}
 
-func (n *NodeD) DataType() reflect.Type {
-    return reflect.TypeOf((*DataD)(nil)).Elem()
+func (n *NodeD) DataType() any {
+    return KeyDataD
 }
 
-func (n *NodeD) Dependencies() []reflect.Type {
-    return []reflect.Type{
-        reflect.TypeOf((*DataA)(nil)).Elem(), // зависит от DataA
+func (n *NodeD) Dependencies() []any {
+    return []any{
+        KeyDataA, // зависит от DataA
     }
 }
 
-func (n *NodeD) Sync(ctx context.Context) error {
+func (n *NodeD) Execute(ctx context.Context) error {
     // выполнение операций для узла D
     return nil
 }
@@ -103,10 +104,10 @@ func ProcessAll(ctx context.Context) error {
     graph := depsgraph.NewGraph()
 
     // Добавляем узлы в произвольном порядке
-    depsgraph.AddNode[DataA](graph, &NodeA{})
-    depsgraph.AddNode[DataB](graph, &NodeB{})
-    depsgraph.AddNode[DataC](graph, &NodeC{})
-    depsgraph.AddNode[DataD](graph, &NodeD{})
+    graph.AddNode(&NodeA{})
+    graph.AddNode(&NodeB{})
+    graph.AddNode(&NodeC{})
+    graph.AddNode(&NodeD{})
 
     // Выполняем операции последовательно в правильном порядке
     // Порядок будет: A -> (B или D) -> (D или B) -> C

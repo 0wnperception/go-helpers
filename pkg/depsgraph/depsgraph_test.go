@@ -3,7 +3,6 @@ package depsgraph
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 )
 
@@ -15,17 +14,17 @@ type TestTypeD struct{}
 
 // Mock узел для тестирования
 type mockNode struct {
-	dataType     reflect.Type
-	dependencies []reflect.Type
+	dataType     any
+	dependencies []any
 	syncFunc     func(ctx context.Context) error
 	syncCalled   bool
 }
 
-func (n *mockNode) DataType() reflect.Type {
+func (n *mockNode) DataType() any {
 	return n.dataType
 }
 
-func (n *mockNode) Dependencies() []reflect.Type {
+func (n *mockNode) Dependencies() []any {
 	return n.dependencies
 }
 
@@ -58,20 +57,20 @@ func TestNewGraph(t *testing.T) {
 
 func TestAddNode(t *testing.T) {
 	graph := NewGraph()
+	nodeKey := "TestTypeA"
 	mock := &mockNode{
-		dataType:     reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType:     nodeKey,
 		dependencies: nil,
 	}
 	node := &mockNodeA{mock}
 
-	AddNode[TestTypeA](graph, node)
+	graph.AddNode(node)
 
 	if len(graph.nodes) != 1 {
 		t.Fatalf("expected 1 node, got %d", len(graph.nodes))
 	}
 
-	typ := reflect.TypeOf((*TestTypeA)(nil)).Elem()
-	if graph.nodes[typ] != node {
+	if graph.nodes[nodeKey] != node {
 		t.Fatal("node not found in graph")
 	}
 }
@@ -81,31 +80,35 @@ func TestExecuteAll_SimpleOrder(t *testing.T) {
 	ctx := context.Background()
 
 	// Создаем узлы: A -> B -> C
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
 	mockA := &mockNode{
-		dataType:     reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType:     keyA,
 		dependencies: nil,
 	}
 	nodeA := &mockNodeA{mockA}
 
 	mockB := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeB)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
 		},
 	}
 	nodeB := &mockNodeB{mockB}
 
 	mockC := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeC)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeB)(nil)).Elem(),
+		dataType: keyC,
+		dependencies: []any{
+			keyB,
 		},
 	}
 	nodeC := &mockNodeC{mockC}
 
-	AddNode[TestTypeA](graph, nodeA)
-	AddNode[TestTypeB](graph, nodeB)
-	AddNode[TestTypeC](graph, nodeC)
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
 
 	err := graph.ExecuteAll(ctx)
 	if err != nil {
@@ -129,31 +132,35 @@ func TestExecuteAll_ParallelNodes(t *testing.T) {
 	ctx := context.Background()
 
 	// Создаем граф: A -> B, C (B и C независимы, оба зависят от A)
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
 	mockA := &mockNode{
-		dataType:     reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType:     keyA,
 		dependencies: nil,
 	}
 	nodeA := &mockNodeA{mockA}
 
 	mockB := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeB)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
 		},
 	}
 	nodeB := &mockNodeB{mockB}
 
 	mockC := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeC)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType: keyC,
+		dependencies: []any{
+			keyA,
 		},
 	}
 	nodeC := &mockNodeC{mockC}
 
-	AddNode[TestTypeA](graph, nodeA)
-	AddNode[TestTypeB](graph, nodeB)
-	AddNode[TestTypeC](graph, nodeC)
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
 
 	err := graph.ExecuteAll(ctx)
 	if err != nil {
@@ -182,30 +189,34 @@ func TestExecuteAll_MultipleDependencies(t *testing.T) {
 	ctx := context.Background()
 
 	// Создаем граф: A, B -> C (C зависит от A и B)
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
 	mockA := &mockNode{
-		dataType:     reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType:     keyA,
 		dependencies: nil,
 	}
 	nodeA := &mockNodeA{mockA}
 
 	mockB := &mockNode{
-		dataType:     reflect.TypeOf((*TestTypeB)(nil)).Elem(),
+		dataType:     keyB,
 		dependencies: nil,
 	}
 	nodeB := &mockNodeB{mockB}
 
 	mockC := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeC)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeA)(nil)).Elem(),
-			reflect.TypeOf((*TestTypeB)(nil)).Elem(),
+		dataType: keyC,
+		dependencies: []any{
+			keyA,
+			keyB,
 		},
 	}
 	nodeC := &mockNodeC{mockC}
 
-	AddNode[TestTypeA](graph, nodeA)
-	AddNode[TestTypeB](graph, nodeB)
-	AddNode[TestTypeC](graph, nodeC)
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
 
 	err := graph.ExecuteAll(ctx)
 	if err != nil {
@@ -229,33 +240,37 @@ func TestExecuteAll_CircularDependency(t *testing.T) {
 	ctx := context.Background()
 
 	// Создаем циклическую зависимость: A -> B -> C -> A
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
 	mockA := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeA)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeC)(nil)).Elem(),
+		dataType: keyA,
+		dependencies: []any{
+			keyC,
 		},
 	}
 	nodeA := &mockNodeA{mockA}
 
 	mockB := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeB)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
 		},
 	}
 	nodeB := &mockNodeB{mockB}
 
 	mockC := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeC)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeB)(nil)).Elem(),
+		dataType: keyC,
+		dependencies: []any{
+			keyB,
 		},
 	}
 	nodeC := &mockNodeC{mockC}
 
-	AddNode[TestTypeA](graph, nodeA)
-	AddNode[TestTypeB](graph, nodeB)
-	AddNode[TestTypeC](graph, nodeC)
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
 
 	err := graph.ExecuteAll(ctx)
 	if err == nil {
@@ -272,16 +287,17 @@ func TestExecuteAll_ExecuteError(t *testing.T) {
 	ctx := context.Background()
 
 	expectedErr := errors.New("execute error")
+	keyA := "TestTypeA"
 
 	nodeA := &mockNode{
-		dataType:     reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType:     keyA,
 		dependencies: nil,
 		syncFunc: func(ctx context.Context) error {
 			return expectedErr
 		},
 	}
 
-	AddNode[TestTypeA](graph, nodeA)
+	graph.AddNode(nodeA)
 
 	err := graph.ExecuteAll(ctx)
 	if err == nil {
@@ -314,41 +330,46 @@ func TestExecuteAll_ComplexGraph(t *testing.T) {
 	//  \ /
 	//   D
 
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+	keyD := "TestTypeD"
+
 	mockA := &mockNode{
-		dataType:     reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType:     keyA,
 		dependencies: nil,
 	}
 	nodeA := &mockNodeA{mockA}
 
 	mockB := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeB)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
 		},
 	}
 	nodeB := &mockNodeB{mockB}
 
 	mockC := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeC)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeA)(nil)).Elem(),
+		dataType: keyC,
+		dependencies: []any{
+			keyA,
 		},
 	}
 	nodeC := &mockNodeC{mockC}
 
 	mockD := &mockNode{
-		dataType: reflect.TypeOf((*TestTypeD)(nil)).Elem(),
-		dependencies: []reflect.Type{
-			reflect.TypeOf((*TestTypeB)(nil)).Elem(),
-			reflect.TypeOf((*TestTypeC)(nil)).Elem(),
+		dataType: keyD,
+		dependencies: []any{
+			keyB,
+			keyC,
 		},
 	}
 	nodeD := &mockNodeD{mockD}
 
-	AddNode[TestTypeA](graph, nodeA)
-	AddNode[TestTypeB](graph, nodeB)
-	AddNode[TestTypeC](graph, nodeC)
-	AddNode[TestTypeD](graph, nodeD)
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+	graph.AddNode(nodeD)
 
 	err := graph.ExecuteAll(ctx)
 	if err != nil {
