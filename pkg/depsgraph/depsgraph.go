@@ -3,11 +3,13 @@
 //
 // The main components are:
 // - Node: an interface for a node with dependencies
+// - NodeWithArgs: optional interface for nodes that pass arguments between each other
 // - Graph: a graph of nodes with topological sorting
 // - AddNode: adding a node to the graph
 // - ExecuteAll: executing operations on all nodes in the correct order
+// - ExecuteInParallel: executing nodes in parallel by ranks
 //
-// Example usage:
+// Example usage (basic nodes without arguments):
 //
 //	graph := depsgraph.NewGraph()
 //	graph.AddNode(&NodeA{})
@@ -30,8 +32,24 @@
 // 3. D or B (second from the pair)
 // 4. C (always executed last, depends on A, B and D)
 //
+// Example usage (nodes with arguments):
+//
+//	// NodeA implements Node (no arguments)
+//	// NodeB implements NodeWithArgs (receives result from NodeA)
+//	// NodeC implements NodeWithArgs (receives results from NodeA and NodeB)
+//	graph := depsgraph.NewGraph()
+//	graph.AddNode(&NodeA{})
+//	graph.AddNode(&NodeB{})  // Will receive result from NodeA via SetArgs
+//	graph.AddNode(&NodeC{})  // Will receive results from NodeA and NodeB via SetArgs
+//	return graph.ExecuteAll(ctx)
+//
+// When a node implements NodeWithArgs:
+// - Before Execute: SetArgs is called with results from all dependencies
+// - After Execute: GetResult is called and the result is stored for dependent nodes
+//
 // This package also supports parallel execution of nodes in different ranks.
 // Nodes in the same rank (without dependencies on each other) are executed in parallel.
+// Argument passing works correctly in parallel mode with proper synchronization.
 // pkg/depsgraph/depsgraph.go
 package depsgraph
 
@@ -48,6 +66,7 @@ var (
 	ErrCircularDependency  = errors.New("circular dependency detected")
 	ErrFailedToSortNodes   = errors.New("failed to sort nodes")
 	ErrFailedToExecuteNode = errors.New("failed to execute node")
+	ErrInvalidDependency   = errors.New("invalid dependency: node with args depends on node without result")
 )
 
 // Node - узел графа зависимостей
@@ -62,14 +81,39 @@ type Node interface {
 	Execute(ctx context.Context) error
 }
 
+// NodeWithArgs - опциональный интерфейс для нод с передачей аргументов.
+// Если нода реализует этот интерфейс, граф автоматически передает результаты
+// зависимых нод через SetArgs перед выполнением Execute.
+// После выполнения Execute результат сохраняется через GetResult для передачи зависимым нодам.
+type NodeWithArgs interface {
+	Node
+
+	// GetResult возвращает результат выполнения ноды.
+	// Результат будет передан всем зависимым нодам через SetArgs.
+	// Вызывается после успешного выполнения Execute.
+	GetResult() (any, error)
+
+	// SetArgs устанавливает аргументы от зависимых нод.
+	// args - карта, где ключ - тип данных зависимости (DataType), значение - результат (GetResult).
+	// Вызывается перед Execute для всех зависимостей.
+	SetArgs(args map[any]any) error
+}
+
 // Graph - граф зависимостей с топологической сортировкой
 type Graph struct {
 	nodes map[any]Node
+	// results хранит результаты выполнения нод для передачи аргументов
+	// Используется только если ноды реализуют NodeWithArgs
+	results map[any]any
+	// resultsMu защищает доступ к results в параллельном режиме
+	resultsMu sync.RWMutex
 }
 
 func NewGraph() *Graph {
 	return &Graph{
-		nodes: make(map[any]Node),
+		nodes:     make(map[any]Node),
+		results:   make(map[any]any),
+		resultsMu: sync.RWMutex{},
 	}
 }
 
@@ -80,6 +124,11 @@ func (g *Graph) AddNode(node Node) {
 
 // ExecuteAll выполняет операции всех узлов в правильном порядке
 func (g *Graph) ExecuteAll(ctx context.Context) error {
+	// Очищаем результаты предыдущего выполнения
+	g.resultsMu.Lock()
+	g.results = make(map[any]any)
+	g.resultsMu.Unlock()
+
 	// Топологическая сортировка
 	order, err := g.topologicalSort()
 	if err != nil {
@@ -92,12 +141,8 @@ func (g *Graph) ExecuteAll(ctx context.Context) error {
 
 	// Выполняем операции в порядке зависимостей
 	for _, typeKey := range order {
-		node := g.nodes[typeKey]
-		typeStr := fmt.Sprintf("%v", typeKey)
-		log.Info(ctx, fmt.Sprintf("Executing %s", typeStr))
-
-		if err := node.Execute(ctx); err != nil {
-			return fmt.Errorf("%w %s: %w", ErrFailedToExecuteNode, typeStr, err)
+		if err := g.executeNode(ctx, typeKey); err != nil {
+			return err
 		}
 	}
 
@@ -155,22 +200,82 @@ func (g *Graph) topologicalSort() ([]any, error) {
 	return result, nil
 }
 
-// ExecuteInParallel выполняет операции всех узлов параллельно по рангам.
-// Ноды одного ранга (без зависимостей друг от друга) выполняются параллельно.
-// Если в ранге только одна нода, выполняется последовательно.
-func (g *Graph) ExecuteInParallel(ctx context.Context) error {
-	// Получаем ранги нод
-	ranks, err := g.getRanks()
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrFailedToSortNodes, err)
+// executeNode выполняет одну ноду с поддержкой передачи аргументов.
+// Если нода реализует NodeWithArgs, перед выполнением устанавливаются аргументы
+// от зависимых нод, а после выполнения сохраняется результат.
+func (g *Graph) executeNode(ctx context.Context, typeKey any) error {
+	node := g.nodes[typeKey]
+	typeStr := fmt.Sprintf("%v", typeKey)
+
+	// Проверяем, реализует ли нода интерфейс NodeWithArgs
+	nodeWithArgs, hasArgs := node.(NodeWithArgs)
+
+	// Если нода поддерживает аргументы, устанавливаем их перед выполнением
+	if hasArgs {
+		args, err := g.collectDependencyArgs(node)
+		if err != nil {
+			return fmt.Errorf("failed to collect args for %s: %w", typeStr, err)
+		}
+
+		if err := nodeWithArgs.SetArgs(args); err != nil {
+			return fmt.Errorf("failed to set args for %s: %w", typeStr, err)
+		}
 	}
 
-	log.Info(ctx, "Execution ranks determined",
-		log.Int("ranks_count", len(ranks)),
-	)
+	// Выполняем ноду
+	if err := node.Execute(ctx); err != nil {
+		return fmt.Errorf("%w %s: %w", ErrFailedToExecuteNode, typeStr, err)
+	}
 
-	// Рекурсивно выполняем ноды по рангам
-	return g.executeRank(ctx, ranks, 0)
+	// Если нода поддерживает аргументы, сохраняем результат
+	if hasArgs {
+		result, err := nodeWithArgs.GetResult()
+		if err != nil {
+			return fmt.Errorf("failed to get result from %s: %w", typeStr, err)
+		}
+
+		g.resultsMu.Lock()
+		g.results[typeKey] = result
+		g.resultsMu.Unlock()
+	}
+
+	return nil
+}
+
+// collectDependencyArgs собирает аргументы от всех зависимых нод.
+// Используется для передачи результатов зависимых нод через SetArgs.
+func (g *Graph) collectDependencyArgs(node Node) (map[any]any, error) {
+	deps := node.Dependencies()
+	if len(deps) == 0 {
+		return make(map[any]any), nil
+	}
+
+	args := make(map[any]any, len(deps))
+
+	g.resultsMu.RLock()
+	defer g.resultsMu.RUnlock()
+
+	for _, depType := range deps {
+		// Проверяем, существует ли зависимость в графе
+		if _, exists := g.nodes[depType]; !exists {
+			// Зависимость не в графе - пропускаем
+			continue
+		}
+
+		// Получаем результат зависимости
+		result, exists := g.results[depType]
+		if !exists {
+			// Результат недоступен - это означает невалидную конфигурацию графа:
+			// 1. Зависимость еще не выполнена (не должно происходить при правильном порядке)
+			// 2. Зависимость не реализует NodeWithArgs (невалидная конфигурация)
+			// Нода с аргументами не может зависеть от ноды без результата
+			return nil, fmt.Errorf("%w: dependency %v does not provide result (node with args depends on node without NodeWithArgs or dependency not executed)", ErrInvalidDependency, depType)
+		}
+
+		args[depType] = result
+	}
+
+	return args, nil
 }
 
 // getRanks группирует ноды по рангам (уровням).
@@ -232,6 +337,29 @@ func (g *Graph) getRanks() ([][]any, error) {
 	return ranks, nil
 }
 
+// ExecuteInParallel выполняет операции всех узлов параллельно по рангам.
+// Ноды одного ранга (без зависимостей друг от друга) выполняются параллельно.
+// Если в ранге только одна нода, выполняется последовательно.
+func (g *Graph) ExecuteInParallel(ctx context.Context) error {
+	// Очищаем результаты предыдущего выполнения
+	g.resultsMu.Lock()
+	g.results = make(map[any]any)
+	g.resultsMu.Unlock()
+
+	// Получаем ранги нод
+	ranks, err := g.getRanks()
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrFailedToSortNodes, err)
+	}
+
+	log.Info(ctx, "Execution ranks determined",
+		log.Int("ranks_count", len(ranks)),
+	)
+
+	// Рекурсивно выполняем ноды по рангам
+	return g.executeRank(ctx, ranks, 0)
+}
+
 // executeRank рекурсивно выполняет ноды начиная с указанного ранга.
 func (g *Graph) executeRank(ctx context.Context, ranks [][]any, rankIndex int) error {
 	// Базовый случай: все ранги обработаны
@@ -248,12 +376,11 @@ func (g *Graph) executeRank(ctx context.Context, ranks [][]any, rankIndex int) e
 	// Если в ранге только одна нода, выполняем последовательно
 	if len(currentRank) == 1 {
 		typeKey := currentRank[0]
-		node := g.nodes[typeKey]
 		typeStr := fmt.Sprintf("%v", typeKey)
 		log.Info(ctx, fmt.Sprintf("Executing %s (rank %d)", typeStr, rankIndex))
 
-		if err := node.Execute(ctx); err != nil {
-			return fmt.Errorf("%w %s: %w", ErrFailedToExecuteNode, typeStr, err)
+		if err := g.executeNode(ctx, typeKey); err != nil {
+			return err
 		}
 
 		// Рекурсивно вызываем для следующего ранга
@@ -271,12 +398,11 @@ func (g *Graph) executeRank(ctx context.Context, ranks [][]any, rankIndex int) e
 		go func(key any) {
 			defer wg.Done()
 
-			node := g.nodes[key]
 			typeStr := fmt.Sprintf("%v", key)
 			log.Info(ctx, fmt.Sprintf("Executing %s (rank %d)", typeStr, rankIndex))
 
-			if err := node.Execute(ctx); err != nil {
-				errChan <- fmt.Errorf("%w %s: %w", ErrFailedToExecuteNode, typeStr, err)
+			if err := g.executeNode(ctx, key); err != nil {
+				errChan <- err
 				return
 			}
 		}(typeKey)

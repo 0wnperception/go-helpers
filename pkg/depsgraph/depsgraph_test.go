@@ -842,3 +842,609 @@ func TestTestCtx_LoggerAndCleanup(t *testing.T) {
 	// Это проверяется тем, что тест завершается без паники
 	// Если cleanup не вызывается, логер может остаться открытым, что вызовет проблемы
 }
+
+// Тесты для NodeWithArgs
+
+// mockNodeWithArgs - mock нода с поддержкой передачи аргументов
+type mockNodeWithArgs struct {
+	*mockNode
+	result      any
+	args        map[any]any
+	setArgsFunc func(args map[any]any) error
+}
+
+func (n *mockNodeWithArgs) GetResult() (any, error) {
+	return n.result, nil
+}
+
+func (n *mockNodeWithArgs) SetArgs(args map[any]any) error {
+	n.args = args
+	if n.setArgsFunc != nil {
+		return n.setArgsFunc(args)
+	}
+	return nil
+}
+
+func TestExecuteAll_WithArgs_SimplePipeline(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Создаем конвейер: A -> B -> C
+	// A возвращает результат, B получает его и возвращает свой, C получает результат B
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
+	resultA := "resultA"
+	resultB := "resultB"
+
+	mockA := &mockNode{
+		dataType:     keyA,
+		dependencies: nil,
+	}
+	nodeA := &mockNodeWithArgs{
+		mockNode: mockA,
+		result:   resultA,
+	}
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   resultB,
+	}
+
+	mockC := &mockNode{
+		dataType: keyC,
+		dependencies: []any{
+			keyB,
+		},
+	}
+	nodeC := &mockNodeWithArgs{
+		mockNode: mockC,
+		result:   "resultC",
+	}
+
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+
+	err := graph.ExecuteAll(ctx)
+	if err != nil {
+		t.Fatalf("ExecuteAll failed: %v", err)
+	}
+
+	// Проверяем, что все ноды были выполнены
+	if !mockA.syncCalled {
+		t.Error("nodeA was not executed")
+	}
+	if !mockB.syncCalled {
+		t.Error("nodeB was not executed")
+	}
+	if !mockC.syncCalled {
+		t.Error("nodeC was not executed")
+	}
+
+	// Проверяем, что аргументы были переданы
+	if nodeB.args == nil {
+		t.Error("nodeB should have received args")
+	}
+	if nodeB.args[keyA] != resultA {
+		t.Errorf("nodeB should have received resultA, got %v", nodeB.args[keyA])
+	}
+
+	if nodeC.args == nil {
+		t.Error("nodeC should have received args")
+	}
+	if nodeC.args[keyB] != resultB {
+		t.Errorf("nodeC should have received resultB, got %v", nodeC.args[keyB])
+	}
+}
+
+func TestExecuteAll_WithArgs_MultipleDependencies(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Создаем граф: A, B -> C (C получает результаты от A и B)
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
+	resultA := "resultA"
+	resultB := "resultB"
+
+	mockA := &mockNode{
+		dataType:     keyA,
+		dependencies: nil,
+	}
+	nodeA := &mockNodeWithArgs{
+		mockNode: mockA,
+		result:   resultA,
+	}
+
+	mockB := &mockNode{
+		dataType:     keyB,
+		dependencies: nil,
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   resultB,
+	}
+
+	mockC := &mockNode{
+		dataType: keyC,
+		dependencies: []any{
+			keyA,
+			keyB,
+		},
+	}
+	nodeC := &mockNodeWithArgs{
+		mockNode: mockC,
+		result:   "resultC",
+	}
+
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+
+	err := graph.ExecuteAll(ctx)
+	if err != nil {
+		t.Fatalf("ExecuteAll failed: %v", err)
+	}
+
+	// Проверяем, что C получил аргументы от A и B
+	if nodeC.args == nil {
+		t.Error("nodeC should have received args")
+	}
+	if nodeC.args[keyA] != resultA {
+		t.Errorf("nodeC should have received resultA, got %v", nodeC.args[keyA])
+	}
+	if nodeC.args[keyB] != resultB {
+		t.Errorf("nodeC should have received resultB, got %v", nodeC.args[keyB])
+	}
+	if len(nodeC.args) != 2 {
+		t.Errorf("nodeC should have received 2 args, got %d", len(nodeC.args))
+	}
+}
+
+func TestExecuteAll_WithArgs_InvalidDependency(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Создаем невалидный граф: A (без args) -> B (с args)
+	// B требует аргументы от A, но A не реализует NodeWithArgs
+	// Это должно вызвать ошибку ErrInvalidDependency
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+
+	mockA := &mockNode{
+		dataType:     keyA,
+		dependencies: nil,
+	}
+	nodeA := &mockNodeA{mockA}
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   "resultB",
+	}
+
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+
+	err := graph.ExecuteAll(ctx)
+	if err == nil {
+		t.Fatal("expected error for invalid dependency configuration")
+	}
+
+	// Проверяем, что ошибка содержит информацию о невалидной зависимости
+	if !errors.Is(err, ErrInvalidDependency) {
+		// Проверяем, что ошибка содержит информацию о невалидной зависимости
+		errStr := err.Error()
+		if !contains(errStr, "invalid dependency") && !contains(errStr, "does not provide result") {
+			t.Fatalf("expected ErrInvalidDependency, got: %v", err)
+		}
+	}
+
+	// Проверяем, что A был выполнен (выполнение останавливается на B)
+	if !mockA.syncCalled {
+		t.Error("nodeA should be executed before error")
+	}
+}
+
+func TestExecuteAll_WithArgs_SetArgsError(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+
+	expectedErr := errors.New("setArgs error")
+
+	mockA := &mockNode{
+		dataType:     keyA,
+		dependencies: nil,
+	}
+	nodeA := &mockNodeWithArgs{
+		mockNode: mockA,
+		result:   "resultA",
+	}
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		setArgsFunc: func(args map[any]any) error {
+			return expectedErr
+		},
+	}
+
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+
+	err := graph.ExecuteAll(ctx)
+	if err == nil {
+		t.Fatal("expected error from SetArgs")
+	}
+
+	if !errors.Is(err, expectedErr) && !errors.Is(err, ErrFailedToExecuteNode) {
+		t.Fatalf("expected SetArgs error, got: %v", err)
+	}
+}
+
+func TestExecuteAll_WithArgs_GetResultError(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+
+	expectedErr := errors.New("getResult error")
+
+	mockA := &mockNode{
+		dataType:     keyA,
+		dependencies: nil,
+	}
+	nodeA := &mockNodeWithArgs{
+		mockNode: mockA,
+		result:   "resultA",
+	}
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	// Создаем ноду с ошибкой в GetResult
+	nodeB := &mockNodeWithArgsError{
+		mockNode:     mockB,
+		result:       nil,
+		getResultErr: expectedErr,
+	}
+
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+
+	err := graph.ExecuteAll(ctx)
+	if err == nil {
+		t.Fatal("expected error from GetResult")
+	}
+
+	// Проверяем, что ошибка содержит информацию о GetResult
+	if !errors.Is(err, expectedErr) {
+		// Проверяем, что ошибка содержит информацию о GetResult
+		errStr := err.Error()
+		if !contains(errStr, "get result") && !contains(errStr, "GetResult") {
+			t.Fatalf("expected GetResult error, got: %v", err)
+		}
+	}
+}
+
+// mockNodeWithArgsError - mock нода с ошибкой в GetResult
+type mockNodeWithArgsError struct {
+	*mockNode
+	result       any
+	args         map[any]any
+	setArgsFunc  func(args map[any]any) error
+	getResultErr error
+}
+
+func (n *mockNodeWithArgsError) GetResult() (any, error) {
+	return n.result, n.getResultErr
+}
+
+func (n *mockNodeWithArgsError) SetArgs(args map[any]any) error {
+	n.args = args
+	if n.setArgsFunc != nil {
+		return n.setArgsFunc(args)
+	}
+	return nil
+}
+
+// contains проверяет, содержит ли строка подстроку (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+			containsSubstring(s, substr)))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestExecuteInParallel_WithArgs_SimplePipeline(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Создаем конвейер: A -> B -> C
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
+	resultA := "resultA"
+	resultB := "resultB"
+
+	mockA := &mockNode{
+		dataType:     keyA,
+		dependencies: nil,
+	}
+	nodeA := &mockNodeWithArgs{
+		mockNode: mockA,
+		result:   resultA,
+	}
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   resultB,
+	}
+
+	mockC := &mockNode{
+		dataType: keyC,
+		dependencies: []any{
+			keyB,
+		},
+	}
+	nodeC := &mockNodeWithArgs{
+		mockNode: mockC,
+		result:   "resultC",
+	}
+
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+
+	err := graph.ExecuteInParallel(ctx)
+	if err != nil {
+		t.Fatalf("ExecuteInParallel failed: %v", err)
+	}
+
+	// Проверяем, что все ноды были выполнены
+	if !mockA.syncCalled {
+		t.Error("nodeA was not executed")
+	}
+	if !mockB.syncCalled {
+		t.Error("nodeB was not executed")
+	}
+	if !mockC.syncCalled {
+		t.Error("nodeC was not executed")
+	}
+
+	// Проверяем, что аргументы были переданы
+	if nodeB.args == nil {
+		t.Error("nodeB should have received args")
+	}
+	if nodeB.args[keyA] != resultA {
+		t.Errorf("nodeB should have received resultA, got %v", nodeB.args[keyA])
+	}
+
+	if nodeC.args == nil {
+		t.Error("nodeC should have received args")
+	}
+	if nodeC.args[keyB] != resultB {
+		t.Errorf("nodeC should have received resultB, got %v", nodeC.args[keyB])
+	}
+}
+
+func TestExecuteInParallel_WithArgs_MultipleDependencies(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Создаем граф: A -> B, C (B и C параллельно получают результат от A)
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
+	resultA := "resultA"
+
+	mockA := &mockNode{
+		dataType:     keyA,
+		dependencies: nil,
+	}
+	nodeA := &mockNodeWithArgs{
+		mockNode: mockA,
+		result:   resultA,
+	}
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   "resultB",
+	}
+
+	mockC := &mockNode{
+		dataType: keyC,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeC := &mockNodeWithArgs{
+		mockNode: mockC,
+		result:   "resultC",
+	}
+
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+
+	err := graph.ExecuteInParallel(ctx)
+	if err != nil {
+		t.Fatalf("ExecuteInParallel failed: %v", err)
+	}
+
+	// Проверяем, что все ноды были выполнены
+	if !mockA.syncCalled {
+		t.Error("nodeA was not executed")
+	}
+	if !mockB.syncCalled {
+		t.Error("nodeB was not executed")
+	}
+	if !mockC.syncCalled {
+		t.Error("nodeC was not executed")
+	}
+
+	// Проверяем, что B и C получили аргументы от A
+	if nodeB.args == nil {
+		t.Error("nodeB should have received args")
+	}
+	if nodeB.args[keyA] != resultA {
+		t.Errorf("nodeB should have received resultA, got %v", nodeB.args[keyA])
+	}
+
+	if nodeC.args == nil {
+		t.Error("nodeC should have received args")
+	}
+	if nodeC.args[keyA] != resultA {
+		t.Errorf("nodeC should have received resultA, got %v", nodeC.args[keyA])
+	}
+}
+
+func TestExecuteInParallel_WithArgs_ComplexGraph(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Создаем сложный граф:
+	//   A (rank 0)
+	//  / \
+	// B   C (rank 1, параллельно)
+	//  \ /
+	//   D (rank 2)
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+	keyD := "TestTypeD"
+
+	resultA := "resultA"
+	resultB := "resultB"
+	resultC := "resultC"
+
+	mockA := &mockNode{
+		dataType:     keyA,
+		dependencies: nil,
+	}
+	nodeA := &mockNodeWithArgs{
+		mockNode: mockA,
+		result:   resultA,
+	}
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   resultB,
+	}
+
+	mockC := &mockNode{
+		dataType: keyC,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeC := &mockNodeWithArgs{
+		mockNode: mockC,
+		result:   resultC,
+	}
+
+	mockD := &mockNode{
+		dataType: keyD,
+		dependencies: []any{
+			keyB,
+			keyC,
+		},
+	}
+	nodeD := &mockNodeWithArgs{
+		mockNode: mockD,
+		result:   "resultD",
+	}
+
+	graph.AddNode(nodeA)
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+	graph.AddNode(nodeD)
+
+	err := graph.ExecuteInParallel(ctx)
+	if err != nil {
+		t.Fatalf("ExecuteInParallel failed: %v", err)
+	}
+
+	// Проверяем, что все ноды были выполнены
+	if !mockA.syncCalled {
+		t.Error("nodeA was not executed")
+	}
+	if !mockB.syncCalled {
+		t.Error("nodeB was not executed")
+	}
+	if !mockC.syncCalled {
+		t.Error("nodeC was not executed")
+	}
+	if !mockD.syncCalled {
+		t.Error("nodeD was not executed")
+	}
+
+	// Проверяем, что аргументы были переданы корректно
+	if nodeB.args[keyA] != resultA {
+		t.Errorf("nodeB should have received resultA, got %v", nodeB.args[keyA])
+	}
+	if nodeC.args[keyA] != resultA {
+		t.Errorf("nodeC should have received resultA, got %v", nodeC.args[keyA])
+	}
+	if nodeD.args[keyB] != resultB {
+		t.Errorf("nodeD should have received resultB, got %v", nodeD.args[keyB])
+	}
+	if nodeD.args[keyC] != resultC {
+		t.Errorf("nodeD should have received resultC, got %v", nodeD.args[keyC])
+	}
+}
