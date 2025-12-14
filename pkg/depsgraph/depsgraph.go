@@ -57,6 +57,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/0wnperception/go-helpers/pkg/log"
@@ -160,7 +161,7 @@ func (g *Graph) ExecuteAll(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", ErrFailedToSortNodes, err)
 	}
 
-	log.Info(ctx, "Execution order determined",
+	log.Debug(ctx, "Execution order determined",
 		log.Int("nodes_count", len(order)),
 	)
 
@@ -421,16 +422,28 @@ func (g *Graph) ExecuteInParallel(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", ErrFailedToSortNodes, err)
 	}
 
-	log.Info(ctx, "Execution ranks determined",
+	log.Debug(ctx, "Execution ranks determined",
 		log.Int("ranks_count", len(ranks)),
 	)
 
+	// Собираем информацию о выполненных рангах
+	ranksInfo := make([]string, 0, len(ranks))
+
 	// Рекурсивно выполняем ноды по рангам
-	return g.executeRank(ctx, ranks, 0)
+	if err := g.executeRank(ctx, ranks, 0, &ranksInfo); err != nil {
+		return err
+	}
+
+	// Выводим один лог со всеми рангами
+	if len(ranksInfo) > 0 {
+		log.Debug(ctx, fmt.Sprintf("Execution completed: %s", strings.Join(ranksInfo, "; ")))
+	}
+
+	return nil
 }
 
 // executeRank рекурсивно выполняет ноды начиная с указанного ранга.
-func (g *Graph) executeRank(ctx context.Context, ranks [][]any, rankIndex int) error {
+func (g *Graph) executeRank(ctx context.Context, ranks [][]any, rankIndex int, ranksInfo *[]string) error {
 	// Базовый случай: все ранги обработаны
 	if rankIndex >= len(ranks) {
 		return nil
@@ -439,25 +452,28 @@ func (g *Graph) executeRank(ctx context.Context, ranks [][]any, rankIndex int) e
 	currentRank := ranks[rankIndex]
 	if len(currentRank) == 0 {
 		// Пустой ранг - переходим к следующему
-		return g.executeRank(ctx, ranks, rankIndex+1)
+		return g.executeRank(ctx, ranks, rankIndex+1, ranksInfo)
 	}
 
 	// Если в ранге только одна нода, выполняем последовательно
 	if len(currentRank) == 1 {
 		typeKey := currentRank[0]
 		typeStr := fmt.Sprintf("%v", typeKey)
-		log.Info(ctx, fmt.Sprintf("Executing %s (rank %d)", typeStr, rankIndex))
+		log.Debug(ctx, fmt.Sprintf("Executing %s (rank %d)", typeStr, rankIndex))
 
 		if err := g.executeNode(ctx, typeKey); err != nil {
 			return err
 		}
 
+		// Сохраняем информацию о ранге
+		*ranksInfo = append(*ranksInfo, fmt.Sprintf("rank %d: %s", rankIndex+1, typeStr))
+
 		// Рекурсивно вызываем для следующего ранга
-		return g.executeRank(ctx, ranks, rankIndex+1)
+		return g.executeRank(ctx, ranks, rankIndex+1, ranksInfo)
 	}
 
 	// Если в ранге несколько нод, выполняем параллельно
-	log.Info(ctx, fmt.Sprintf("Executing rank %d with %d nodes in parallel", rankIndex, len(currentRank)))
+	log.Debug(ctx, fmt.Sprintf("Executing rank %d with %d nodes in parallel", rankIndex, len(currentRank)))
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(currentRank))
@@ -468,7 +484,7 @@ func (g *Graph) executeRank(ctx context.Context, ranks [][]any, rankIndex int) e
 			defer wg.Done()
 
 			typeStr := fmt.Sprintf("%v", key)
-			log.Info(ctx, fmt.Sprintf("Executing %s (rank %d)", typeStr, rankIndex))
+			log.Debug(ctx, fmt.Sprintf("Executing %s (rank %d)", typeStr, rankIndex))
 
 			if err := g.executeNode(ctx, key); err != nil {
 				errChan <- err
@@ -487,6 +503,15 @@ func (g *Graph) executeRank(ctx context.Context, ranks [][]any, rankIndex int) e
 		}
 	}
 
+	// Собираем список выполненных нод для лога
+	nodeTypes := make([]string, len(currentRank))
+	for i, typeKey := range currentRank {
+		nodeTypes[i] = fmt.Sprintf("%v", typeKey)
+	}
+
+	// Сохраняем информацию о ранге
+	*ranksInfo = append(*ranksInfo, fmt.Sprintf("rank %d: %s", rankIndex+1, strings.Join(nodeTypes, ", ")))
+
 	// Рекурсивно вызываем для следующего ранга
-	return g.executeRank(ctx, ranks, rankIndex+1)
+	return g.executeRank(ctx, ranks, rankIndex+1, ranksInfo)
 }
