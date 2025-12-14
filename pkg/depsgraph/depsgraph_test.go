@@ -1448,3 +1448,209 @@ func TestExecuteInParallel_WithArgs_ComplexGraph(t *testing.T) {
 		t.Errorf("nodeD should have received resultC, got %v", nodeD.args[keyC])
 	}
 }
+
+func TestSetInitialResult_ExternalDependency(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Создаем граф, где первый узел (B) зависит от внешней зависимости (A)
+	// A не является узлом графа, но результат инициализирован через SetInitialResult
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
+	externalResultA := "externalResultA"
+	resultB := "resultB"
+
+	// Инициализируем результат для внешней зависимости
+	graph.SetInitialResult(keyA, externalResultA)
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA, // Зависимость от внешнего узла
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   resultB,
+	}
+
+	mockC := &mockNode{
+		dataType: keyC,
+		dependencies: []any{
+			keyB,
+		},
+	}
+	nodeC := &mockNodeWithArgs{
+		mockNode: mockC,
+		result:   "resultC",
+	}
+
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+
+	err := graph.ExecuteAll(ctx)
+	if err != nil {
+		t.Fatalf("ExecuteAll failed: %v", err)
+	}
+
+	// Проверяем, что все ноды были выполнены
+	if !mockB.syncCalled {
+		t.Error("nodeB was not executed")
+	}
+	if !mockC.syncCalled {
+		t.Error("nodeC was not executed")
+	}
+
+	// Проверяем, что B получил аргументы от инициализированной внешней зависимости
+	if nodeB.args == nil {
+		t.Error("nodeB should have received args")
+	}
+	if nodeB.args[keyA] != externalResultA {
+		t.Errorf("nodeB should have received externalResultA, got %v", nodeB.args[keyA])
+	}
+
+	// Проверяем, что C получил аргументы от B
+	if nodeC.args == nil {
+		t.Error("nodeC should have received args")
+	}
+	if nodeC.args[keyB] != resultB {
+		t.Errorf("nodeC should have received resultB, got %v", nodeC.args[keyB])
+	}
+}
+
+func TestSetInitialResult_SortingNotBroken(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Проверяем, что узел с инициализированной зависимостью может быть в первом ранге
+	// (не должен иметь in-degree > 0)
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
+	externalResultA := "externalResultA"
+
+	// Инициализируем результат для внешней зависимости
+	graph.SetInitialResult(keyA, externalResultA)
+
+	executionOrder := make([]string, 0)
+	var mu sync.Mutex
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA, // Зависимость от внешнего узла (инициализирована)
+		},
+		syncFunc: func(ctx context.Context) error {
+			mu.Lock()
+			executionOrder = append(executionOrder, "B")
+			mu.Unlock()
+			return nil
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   "resultB",
+	}
+
+	mockC := &mockNode{
+		dataType: keyC,
+		dependencies: []any{
+			keyB,
+		},
+		syncFunc: func(ctx context.Context) error {
+			mu.Lock()
+			executionOrder = append(executionOrder, "C")
+			mu.Unlock()
+			return nil
+		},
+	}
+	nodeC := &mockNodeWithArgs{
+		mockNode: mockC,
+		result:   "resultC",
+	}
+
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+
+	err := graph.ExecuteAll(ctx)
+	if err != nil {
+		t.Fatalf("ExecuteAll failed: %v", err)
+	}
+
+	// Проверяем порядок выполнения
+	// B должен быть первым (так как его зависимость инициализирована, in-degree = 0)
+	if len(executionOrder) < 2 {
+		t.Fatalf("expected 2 nodes executed, got %d", len(executionOrder))
+	}
+	if executionOrder[0] != "B" {
+		t.Errorf("B should be executed first (has initialized dependency), got order: %v", executionOrder)
+	}
+	if executionOrder[1] != "C" {
+		t.Errorf("C should be executed second, got order: %v", executionOrder)
+	}
+}
+
+func TestSetInitialResult_ExecuteInParallel(t *testing.T) {
+	graph := NewGraph()
+	ctx := testCtx(t)
+
+	// Тестируем SetInitialResult с ExecuteInParallel
+	keyA := "TestTypeA"
+	keyB := "TestTypeB"
+	keyC := "TestTypeC"
+
+	externalResultA := "externalResultA"
+	resultB := "resultB"
+
+	// Инициализируем результат для внешней зависимости
+	graph.SetInitialResult(keyA, externalResultA)
+
+	mockB := &mockNode{
+		dataType: keyB,
+		dependencies: []any{
+			keyA,
+		},
+	}
+	nodeB := &mockNodeWithArgs{
+		mockNode: mockB,
+		result:   resultB,
+	}
+
+	mockC := &mockNode{
+		dataType: keyC,
+		dependencies: []any{
+			keyA, // Оба B и C зависят от A, должны выполняться параллельно
+		},
+	}
+	nodeC := &mockNodeWithArgs{
+		mockNode: mockC,
+		result:   "resultC",
+	}
+
+	graph.AddNode(nodeB)
+	graph.AddNode(nodeC)
+
+	err := graph.ExecuteInParallel(ctx)
+	if err != nil {
+		t.Fatalf("ExecuteInParallel failed: %v", err)
+	}
+
+	// Проверяем, что все ноды были выполнены
+	if !mockB.syncCalled {
+		t.Error("nodeB was not executed")
+	}
+	if !mockC.syncCalled {
+		t.Error("nodeC was not executed")
+	}
+
+	// Проверяем, что B и C получили аргументы от инициализированной зависимости
+	if nodeB.args[keyA] != externalResultA {
+		t.Errorf("nodeB should have received externalResultA, got %v", nodeB.args[keyA])
+	}
+	if nodeC.args[keyA] != externalResultA {
+		t.Errorf("nodeC should have received externalResultA, got %v", nodeC.args[keyA])
+	}
+}

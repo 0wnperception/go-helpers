@@ -122,11 +122,36 @@ func (g *Graph) AddNode(node Node) {
 	g.nodes[node.DataType()] = node
 }
 
+// SetInitialResult инициализирует результат для внешней зависимости.
+// Это позволяет узлам иметь зависимости, которые не являются узлами графа,
+// но результаты которых предоставлены извне. Такие зависимости не учитываются
+// при топологической сортировке (не увеличивают in-degree узла).
+// Должно вызываться до ExecuteAll или ExecuteInParallel.
+func (g *Graph) SetInitialResult(depType any, result any) {
+	g.resultsMu.Lock()
+	defer g.resultsMu.Unlock()
+	g.results[depType] = result
+}
+
 // ExecuteAll выполняет операции всех узлов в правильном порядке
 func (g *Graph) ExecuteAll(ctx context.Context) error {
-	// Очищаем результаты предыдущего выполнения
+	// Сохраняем инициализированные результаты (внешние зависимости)
+	// перед очисткой результатов выполнения узлов
 	g.resultsMu.Lock()
+	initialResults := make(map[any]any)
+	for depType, result := range g.results {
+		// Сохраняем только результаты, которые не являются узлами графа
+		// (инициализированные внешние зависимости)
+		if _, exists := g.nodes[depType]; !exists {
+			initialResults[depType] = result
+		}
+	}
+	// Очищаем результаты предыдущего выполнения
 	g.results = make(map[any]any)
+	// Восстанавливаем инициализированные результаты
+	for depType, result := range initialResults {
+		g.results[depType] = result
+	}
 	g.resultsMu.Unlock()
 
 	// Топологическая сортировка
@@ -157,11 +182,20 @@ func (g *Graph) topologicalSort() ([]any, error) {
 		inDegree[typeKey] = 0
 	}
 
+	g.resultsMu.RLock()
 	for _, node := range g.nodes {
-		for range node.Dependencies() {
-			inDegree[node.DataType()]++
+		for _, dep := range node.Dependencies() {
+			// Если зависимость инициализирована (есть в results), она не учитывается
+			// при подсчете in-degree, так как результат уже доступен
+			if _, initialized := g.results[dep]; !initialized {
+				// Зависимость не инициализирована - учитываем только если она в графе
+				if _, exists := g.nodes[dep]; exists {
+					inDegree[node.DataType()]++
+				}
+			}
 		}
 	}
+	g.resultsMu.RUnlock()
 
 	// Находим узлы без зависимостей
 	queue := make([]any, 0)
@@ -184,9 +218,16 @@ func (g *Graph) topologicalSort() ([]any, error) {
 			for _, dep := range node.Dependencies() {
 				if dep == current {
 					typeKey := node.DataType()
-					inDegree[typeKey]--
-					if inDegree[typeKey] == 0 {
-						queue = append(queue, typeKey)
+					// Учитываем только если эта зависимость влияла на in-degree
+					// (т.е. она была в графе и не была инициализирована)
+					g.resultsMu.RLock()
+					_, initialized := g.results[dep]
+					g.resultsMu.RUnlock()
+					if !initialized {
+						inDegree[typeKey]--
+						if inDegree[typeKey] == 0 {
+							queue = append(queue, typeKey)
+						}
 					}
 				}
 			}
@@ -256,20 +297,20 @@ func (g *Graph) collectDependencyArgs(node Node) (map[any]any, error) {
 	defer g.resultsMu.RUnlock()
 
 	for _, depType := range deps {
-		// Проверяем, существует ли зависимость в графе
-		if _, exists := g.nodes[depType]; !exists {
-			// Зависимость не в графе - пропускаем
-			continue
-		}
-
 		// Получаем результат зависимости
 		result, exists := g.results[depType]
 		if !exists {
-			// Результат недоступен - это означает невалидную конфигурацию графа:
-			// 1. Зависимость еще не выполнена (не должно происходить при правильном порядке)
-			// 2. Зависимость не реализует NodeWithArgs (невалидная конфигурация)
-			// Нода с аргументами не может зависеть от ноды без результата
-			return nil, fmt.Errorf("%w: dependency %v does not provide result (node with args depends on node without NodeWithArgs or dependency not executed)", ErrInvalidDependency, depType)
+			// Проверяем, существует ли зависимость в графе
+			if _, nodeExists := g.nodes[depType]; nodeExists {
+				// Зависимость в графе, но результат недоступен - это означает невалидную конфигурацию:
+				// 1. Зависимость еще не выполнена (не должно происходить при правильном порядке)
+				// 2. Зависимость не реализует NodeWithArgs (невалидная конфигурация)
+				// Нода с аргументами не может зависеть от ноды без результата
+				return nil, fmt.Errorf("%w: dependency %v does not provide result (node with args depends on node without NodeWithArgs or dependency not executed)", ErrInvalidDependency, depType)
+			}
+			// Зависимость не в графе и не инициализирована - пропускаем
+			// (внешняя зависимость без инициализации)
+			continue
 		}
 
 		args[depType] = result
@@ -290,13 +331,20 @@ func (g *Graph) getRanks() ([][]any, error) {
 	}
 
 	// Подсчитываем зависимости
+	g.resultsMu.RLock()
 	for _, node := range g.nodes {
 		for _, dep := range node.Dependencies() {
-			if _, exists := g.nodes[dep]; exists {
-				inDegree[node.DataType()]++
+			// Если зависимость инициализирована (есть в results), она не учитывается
+			// при подсчете in-degree, так как результат уже доступен
+			if _, initialized := g.results[dep]; !initialized {
+				// Зависимость не инициализирована - учитываем только если она в графе
+				if _, exists := g.nodes[dep]; exists {
+					inDegree[node.DataType()]++
+				}
 			}
 		}
 	}
+	g.resultsMu.RUnlock()
 
 	ranks := make([][]any, 0)
 	processed := make(map[any]bool)
@@ -320,18 +368,25 @@ func (g *Graph) getRanks() ([][]any, error) {
 		ranks = append(ranks, currentRank)
 
 		// Уменьшаем in-degree для нод, зависящих от текущего ранга
+		g.resultsMu.RLock()
 		for _, typeKey := range currentRank {
 			for _, node := range g.nodes {
 				for _, dep := range node.Dependencies() {
 					if dep == typeKey {
 						nodeTypeKey := node.DataType()
 						if !processed[nodeTypeKey] {
-							inDegree[nodeTypeKey]--
+							// Учитываем только если эта зависимость влияла на in-degree
+							// (т.е. она была в графе и не была инициализирована)
+							_, initialized := g.results[dep]
+							if !initialized {
+								inDegree[nodeTypeKey]--
+							}
 						}
 					}
 				}
 			}
 		}
+		g.resultsMu.RUnlock()
 	}
 
 	return ranks, nil
@@ -341,9 +396,23 @@ func (g *Graph) getRanks() ([][]any, error) {
 // Ноды одного ранга (без зависимостей друг от друга) выполняются параллельно.
 // Если в ранге только одна нода, выполняется последовательно.
 func (g *Graph) ExecuteInParallel(ctx context.Context) error {
-	// Очищаем результаты предыдущего выполнения
+	// Сохраняем инициализированные результаты (внешние зависимости)
+	// перед очисткой результатов выполнения узлов
 	g.resultsMu.Lock()
+	initialResults := make(map[any]any)
+	for depType, result := range g.results {
+		// Сохраняем только результаты, которые не являются узлами графа
+		// (инициализированные внешние зависимости)
+		if _, exists := g.nodes[depType]; !exists {
+			initialResults[depType] = result
+		}
+	}
+	// Очищаем результаты предыдущего выполнения
 	g.results = make(map[any]any)
+	// Восстанавливаем инициализированные результаты
+	for depType, result := range initialResults {
+		g.results[depType] = result
+	}
 	g.resultsMu.Unlock()
 
 	// Получаем ранги нод
